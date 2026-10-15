@@ -6,8 +6,6 @@ import type { Componente } from '@/types/interfaces';
 import { componenteService } from '@/services/seguridades/componente.service';
 import ComponenteForm from './components/form';
 import ComponenteTable from './components/table';
-import OrigenComponenteStepper from './components/origen-componente-stepper';
-import CausaDefectoStepper from './components/causa-defecto-stepper';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function ComponentesPage() {
@@ -15,9 +13,10 @@ export default function ComponentesPage() {
     const [selectedRecord, setSelectedRecord] = useState<Componente | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isFormOpen, setIsFormOpen] = useState(false);
-    const [isAssociatingOrigenes, setIsAssociatingOrigenes] = useState(false);
-    const [isAssociatingCausas, setIsAssociatingCausas] = useState(false);
     const [hasFetched, setHasFetched] = useState(false);
+    const [tableFilter, setTableFilter] = useState("");
+    const [tablePage, setTablePage] = useState(1);
+    const [tableRowsPerPage, setTableRowsPerPage] = useState(10);
     const { toast } = useToast();
 
     const fetchRecords = useCallback(async () => {
@@ -61,33 +60,13 @@ export default function ComponentesPage() {
         fetchRecords();
         setIsFormOpen(false);
         setSelectedRecord(null);
-    }
+    };
 
     const handleCancel = () => {
         if (records.length > 0) {
             setIsFormOpen(false);
             setSelectedRecord(null);
         }
-    }
-
-    const handleAssociateOrigenes = (record: Componente) => {
-        setSelectedRecord(record);
-        setIsAssociatingOrigenes(true);
-    };
-
-    const handleCloseOriginAssociation = () => {
-        setIsAssociatingOrigenes(false);
-        setSelectedRecord(null);
-    };
-
-    const handleAssociateCausas = (record: Componente) => {
-        setSelectedRecord(record);
-        setIsAssociatingCausas(true);
-    };
-
-    const handleCloseCausaAssociation = () => {
-        setIsAssociatingCausas(false);
-        setSelectedRecord(null);
     };
 
     const showTable = hasFetched && !isFormOpen && records.length > 0;
@@ -99,7 +78,11 @@ export default function ComponentesPage() {
                     <CardTitle>Gestión de Componentes</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p>Crea, edita y gestiona los componentes.</p>
+                    <p>
+                        Crea, edita y gestiona los componentes. El mapeo con
+                        orígenes y causas se configura en{" "}
+                        <strong>Flujo operativo</strong>.
+                    </p>
                 </CardContent>
             </Card>
 
@@ -109,24 +92,18 @@ export default function ComponentesPage() {
                     onSuccess={handleSuccess}
                     onCancel={handleCancel}
                 />
-            ) : isAssociatingOrigenes && selectedRecord ? (
-                <OrigenComponenteStepper
-                    componente={selectedRecord}
-                    onClose={handleCloseOriginAssociation}
-                />
-            ) : isAssociatingCausas && selectedRecord ? (
-                <CausaDefectoStepper
-                    componente={selectedRecord}
-                    onClose={handleCloseCausaAssociation}
-                />
             ) : showTable ? (
                 <ComponenteTable
                     records={records}
                     isLoading={isLoading}
                     onEdit={handleEdit}
                     onAddNew={handleAddNew}
-                    onAssociateOrigenes={handleAssociateOrigenes}
-                    onAssociateCausas={handleAssociateCausas}
+                    filter={tableFilter}
+                    onFilterChange={setTableFilter}
+                    page={tablePage}
+                    onPageChange={setTablePage}
+                    rowsPerPage={tableRowsPerPage}
+                    onRowsPerPageChange={setTableRowsPerPage}
                 />
             ) : null}
         </div>

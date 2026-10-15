@@ -22,6 +22,7 @@ import { Save, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { AreaTipoMotivo, Origen, TipoMotivo } from "@/types/interfaces";
 import { origenService } from "@/services/seguridades/origen.service";
+import { normalizeOrigenNombre } from "@/lib/origen-nombre";
 
 const formatDateForSQLServer = (date: Date): string => {
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -70,7 +71,8 @@ export default function OrigenEditModal({
   if (!origen) return null;
 
   const handleSave = async () => {
-    if (!nombre.trim()) {
+    const nombreNorm = normalizeOrigenNombre(nombre);
+    if (!nombreNorm) {
       toast({
         title: "Validación",
         description: "El nombre del origen es requerido.",
@@ -86,7 +88,7 @@ export default function OrigenEditModal({
       const data: Origen = {
         codigo_origen: origen.codigo_origen,
         codigo_area_tipo_motivo: selectedAtm?.codigo_area_tipo_motivo ?? origen.codigo_area_tipo_motivo,
-        nombre_origen: nombre.trim(),
+        nombre_origen: nombreNorm,
         estado,
         usuario_modificacion: usuarioSession,
         fecha_modificacion: formatDateForSQLServer(new Date()),
@@ -136,10 +138,12 @@ export default function OrigenEditModal({
             </label>
             <Input
               value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-              placeholder="Ej: Cliente A"
+              onChange={(e) => setNombre(normalizeOrigenNombre(e.target.value))}
+              placeholder="EJ CLIENTE A"
             />
-          </div>
+            <p className="text-xs text-muted-foreground">
+              Mayúsculas, sin acentos ni caracteres especiales.
+            </p>          </div>
 
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">

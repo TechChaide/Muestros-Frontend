@@ -6,19 +6,31 @@ import type { Area } from '@/types/interfaces';
 import { areaService } from '@/services/seguridades/area.service';
 import AreaForm from './components/form';
 import AreaTable from './components/table';
-import OriginAssociationView from './components/origin-association';
 import TipoMotivoAssociation from './components/tipo-motivo-association';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Loader2 } from 'lucide-react';
 
 export default function AreasPage() {
     const [records, setRecords] = useState<Area[]>([]);
     const [selectedRecord, setSelectedRecord] = useState<Area | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isFormOpen, setIsFormOpen] = useState(false);
-    const [isAssociatingOrigins, setIsAssociatingOrigins] = useState(false);
-    const [isAssociatingMotivos, setIsAssociatingMotivos] = useState(false);
     const [hasFetched, setHasFetched] = useState(false);
     const { toast } = useToast();
+
+    const [recordToDelete, setRecordToDelete] = useState<Area | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [associateArea, setAssociateArea] = useState<Area | null>(null);
 
     const fetchRecords = useCallback(async () => {
         setIsLoading(true);
@@ -70,27 +82,55 @@ export default function AreasPage() {
         }
     };
 
-    const handleAssociateOrigins = (record: Area) => {
-        setSelectedRecord(record);
-        setIsAssociatingOrigins(true);
+    const handleAskDelete = (record: Area) => {
+        setRecordToDelete(record);
     };
 
-    const handleCloseOriginAssociation = () => {
-        setIsAssociatingOrigins(false);
-        setSelectedRecord(null);
+    const handleCancelDelete = () => {
+        if (isDeleting) return;
+        setRecordToDelete(null);
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!recordToDelete) return;
+        setIsDeleting(true);
+        try {
+            await areaService.delete(recordToDelete.codigo_area);
+            toast({
+                title: "Área eliminada",
+                description: `El área "${recordToDelete.nombre_area}" se eliminó correctamente.`,
+            });
+            setRecordToDelete(null);
+            await fetchRecords();
+        } catch (error) {
+            const errorMessage =
+                error instanceof Error
+                    ? error.message
+                    : "No se pudo eliminar el área.";
+            toast({
+                title: "Error al eliminar",
+                description: errorMessage,
+                variant: "destructive",
+            });
+        } finally {
+            setIsDeleting(false);
+        }
     };
 
     const handleAssociateMotivos = (record: Area) => {
-        setSelectedRecord(record);
-        setIsAssociatingMotivos(true);
+        setAssociateArea(record);
     };
 
-    const handleCloseMotivoAssociation = () => {
-        setIsAssociatingMotivos(false);
-        setSelectedRecord(null);
-    };
+    const showTable = hasFetched && !isFormOpen && !associateArea && records.length > 0;
 
-    const showTable = hasFetched && !isFormOpen && records.length > 0;
+    if (associateArea) {
+        return (
+            <TipoMotivoAssociation
+                area={associateArea}
+                onClose={() => setAssociateArea(null)}
+            />
+        );
+    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -99,7 +139,12 @@ export default function AreasPage() {
                     <CardTitle>Gestión de Áreas</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p>Crea, edita y gestiona las áreas de la organización.</p>
+                    <p>
+                        Crea, edita y gestiona las áreas. Desde las acciones de
+                        cada área puedes asociar motivos y, en cada motivo,
+                        orígenes de datos. El recorrido completo también está en{" "}
+                        <strong>Flujo operativo</strong>.
+                    </p>
                 </CardContent>
             </Card>
 
@@ -109,26 +154,52 @@ export default function AreasPage() {
                     onSuccess={handleSuccess}
                     onCancel={handleCancel}
                 />
-            ) : isAssociatingOrigins && selectedRecord ? (
-                <OriginAssociationView
-                    area={selectedRecord}
-                    onClose={handleCloseOriginAssociation}
-                />
-            ) : isAssociatingMotivos && selectedRecord ? (
-                <TipoMotivoAssociation
-                    area={selectedRecord}
-                    onClose={handleCloseMotivoAssociation}
-                />
             ) : showTable ? (
                 <AreaTable
                     records={records}
                     isLoading={isLoading}
                     onEdit={handleEdit}
                     onAddNew={handleAddNew}
-                    onAssociateOrigins={handleAssociateOrigins}
+                    onDelete={handleAskDelete}
                     onAssociateMotivos={handleAssociateMotivos}
                 />
-            ) : null}
+            ) : (
+                hasFetched && (
+                    <div className="flex justify-center items-center p-10">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                )
+            )}
+
+            <AlertDialog
+                open={!!recordToDelete}
+                onOpenChange={(open) => {
+                    if (!open) handleCancelDelete();
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>¿Eliminar área?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {recordToDelete
+                                ? `Se eliminará el área "${recordToDelete.nombre_area}". Esta acción no se puede deshacer.`
+                                : "Esta acción no se puede deshacer."}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>
+                            Cancelar
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleConfirmDelete}
+                            disabled={isDeleting}
+                            className="bg-red-600 hover:bg-red-700"
+                        >
+                            {isDeleting ? "Eliminando..." : "Eliminar"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

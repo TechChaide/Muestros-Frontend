@@ -22,6 +22,10 @@ export const environment = {
 
 
 
+    /////////////////////////////////////////Api contrustura lectora de codigo qr y codigo de barras
+
+    apiScanner: 'https://apps.chaide.com/codesgr',
+
     /////////////////////////////////////Api Propia de la Aplicación
 
     //appAPI: 'http://localhost:5400',

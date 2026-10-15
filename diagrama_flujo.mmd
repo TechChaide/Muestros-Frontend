@@ -1,0 +1,99 @@
+%%{init: {"flowchart": {"htmlLabels": true, "curve": "linear"}, "theme": "base", "themeVariables": {"primaryColor": "#eef2ff", "primaryBorderColor": "#4f46e5", "lineColor": "#64748b", "fontSize": "14px"}}}%%
+graph TD
+    A(["Inicio del formulario"]) --> B{{"REGIONAL<br/>UIO / GYE"}}
+    B --> C["GV1: Departamentos<br/><i>ParamControlDefectos</i>"]
+    C --> D["GV2: Motivos<br/><i>ParamControlDefectos</i>"]
+
+    D --> E{{"MOTIVO = PARO DE MAQUINA<br/>o DEVOLUCIONES ?"}}
+    E -- "Si" --> F["GV3: Origen<br/><i>ParamControlDefectos</i>"]
+    E -- "No" --> G["GV3: Componente<br/><i>ParamControlDefectos</i>"]
+
+    F --> H{{"MOTIVO=PARO<br/>y ORIGEN=REPUESTOS ?"}}
+    H -- "Si" --> M5["Captura de material<br/>directa (salta pasos)"]
+    H -- "No" --> I["GV4: Componente<br/><i>ParamControlDefectos</i>"]
+    G --> J["GV4: Causa defecto<br/><i>ParamControlDefectos</i>"]
+
+    I --> K{{"Flag Material = 1 ?"}}
+    J --> K
+    K -- "No" --> P7["Ir directo a<br/>captura de persona"]
+    K -- "Si" --> L{{"Tipo de busqueda<br/>segun MOTIVO"}}
+
+    L -- "PARO con CLAVE" --> C1["Pedir CLAVE<br/>(password)"]
+    L -- "PARO sin CLAVE" --> Q1["Buscar Maquina<br/><i>TareasMaquinas</i>"]
+    L -- "GESTION ADM DISTRI" --> Q2["Buscar Pedido<br/><i>BI.CuboDespachos</i>"]
+    L -- "DEVOLUCIONES UIO" --> Q3["Material centro=1000<br/><i>MaestroMaterialCentro</i>"]
+    L -- "otro" --> Q4["Material centro=1000/2000<br/><i>MaestroMaterialCentro</i>"]
+
+    C1 --> Q1
+    Q1 --> GV5["GV5: Resultado busqueda"]
+    Q2 --> GV5
+    Q3 --> GV5
+    Q4 --> GV5
+    M5 --> GV5
+
+    GV5 --> R6{{"Rotulo de persona<br/>(Label8)"}}
+    P7 --> R6
+    R6 -- "DEVOLUCIONES EXTERNAS ESPUMA" --> S1["Rotulo: NOMBRE CLIENTE"]
+    R6 -- "ORIGEN=TIENDAS PROPIAS" --> S2["Rotulo: OFICINA VENTAS"]
+    R6 -- "PARO + Mantenimiento" --> S3["Rotulo: EMPLEADO MANTTO"]
+    R6 -- "DEVOLUCIONES / PROVEEDOR" --> S4["Rotulo: NOMBRE PROVEEDOR"]
+    R6 -- "resto" --> S5["Rotulo: COD EVO / NOMBRE"]
+
+    S1 --> T7{{"Fuente de la lista<br/>(Button4_Click)"}}
+    S2 --> T7
+    S3 --> T7
+    S4 --> T7
+    S5 --> T7
+
+    T7 -- "Espuma" --> U1["MaestroClientesInterlocutores<br/>(Ciudad por regional)"]
+    T7 -- "Proveedor + ORIGEN valido" --> U2["Proveedores<br/><i>NotificaSAP.Proveedores</i>"]
+    T7 -- "Tiendas" --> U3["CatalogoTiendas"]
+    T7 -- "PARO area" --> U4["FichaSocial<br/>(operario del area)"]
+    T7 -- "Gestion / Dev UIO" --> U5["FichaSocial<br/>(global)"]
+    T7 -- "resto" --> U6["FichaSocial<br/>(por departamento)"]
+
+    U1 --> GV6["GV6: Persona / Cliente<br/>seleccionado"]
+    U2 --> GV6
+    U3 --> GV6
+    U4 --> GV6
+    U5 --> GV6
+    U6 --> GV6
+
+    GV6 --> V8{{"Detalle final<br/>(solo MOTIVO=PARO)"}}
+    V8 -- "Falla / Mantenimiento" --> W1["GV8: Empleado<br/>mantenimiento"]
+    V8 -- "Componente=TIEMPO DE MAQUINA" --> W2["Turno + horas"]
+    V8 -- "Materiales / Otras" --> W3["Cantidad directa"]
+    V8 -- "PARO + REPUESTOS" --> W4["Material + resortes<br/>+ tipo"]
+    V8 -- "Devolucion / otro motivo" --> W5["GV7: Causa defecto<br/><i>ParamControlDefectos</i>"]
+
+    W1 --> X{{"MOTIVO=PARO normal ?"}}
+    X -- "Si" --> Y1["GV9: Causa final<br/><i>ParamControlDefectos</i>"]
+    X -- "No" --> G1(["Grabar (Button5)"])
+
+    W5 --> Z{{"Existe fila con<br/>Cantidad = 0 ?"}}
+    Z -- "Si (no requerida)" --> G1
+    Z -- "No (requerida > 0)" --> CT["Pedir cantidad > 0<br/>(<=50 si 6 PANELES+DESPERDICIO)"]
+    CT --> G1
+
+    W3 --> G1
+    W4 --> G1
+
+    Y1 --> V2{{"Componente=<br/>TIEMPO DE MAQUINA ?"}}
+    V2 -- "Si" --> W2
+    V2 -- "No" --> G1
+    W2 --> G2(["Grabar (Button7)<br/>con turno/horas"])
+
+    G1 --> R10{{"Componente es<br/>Falla/Mantenimiento ?"}}
+    G2 --> R10
+    R10 -- "Si" --> GF["Redirige a<br/>Google Form"]
+    R10 -- "No" --> OK["Mensaje: Registro<br/>grabado"]
+
+    GF --> FIN(["INSERT en ControlDefectos<br/>+ ControlOperadores (+ operadorturnos)"])
+    OK --> FIN
+
+    classDef dbTable fill:#dcfce7,stroke:#16a34a,stroke-width:1px;
+    classDef decision fill:#fef3c7,stroke:#d97706,stroke-width:1px;
+    classDef terminal fill:#e0e7ff,stroke:#4338ca,stroke-width:2px;
+    class C,D,F,G,I,J,GV5,GV6,W1,W5,Y1,U1,U2,U3,U4,U5,U6,Q1,Q2,Q3,Q4 dbTable;
+    class B,E,H,K,L,R6,T7,V8,X,Z,V2,R10 decision;
+    class A,FIN,G1,G2 terminal;

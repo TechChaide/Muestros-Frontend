@@ -60,6 +60,7 @@ import { areaTipoMotivoService } from "@/services/seguridades/areaTipoMotivo.ser
 import { tipoMotivoService } from "@/services/seguridades/tipoMotivo.service";
 import { origenService } from "@/services/seguridades/origen.service";
 import OrigenEditModal from "./origen-edit-modal";
+import { normalizeOrigenNombre } from "@/lib/origen-nombre";
 
 const formatDateForSQLServer = (date: Date): string => {
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -233,7 +234,8 @@ export default function OriginAssociationView({ area, onClose }: OriginAssociati
   const handleSave = async () => {
     if (!selectedAtm) return;
     const values = form.getValues();
-    if (!values.nombre_origen?.trim()) return;
+    const nombreNorm = normalizeOrigenNombre(values.nombre_origen ?? "");
+    if (!nombreNorm) return;
     setIsSaving(true);
     try {
       // Construcción del payload según sea creación (codigo_origen=0)
@@ -242,7 +244,7 @@ export default function OriginAssociationView({ area, onClose }: OriginAssociati
       const data: Origen = {
         codigo_origen: 0,
         codigo_area_tipo_motivo: selectedAtm.codigo_area_tipo_motivo,
-        nombre_origen: values.nombre_origen.trim(),
+        nombre_origen: nombreNorm,
         estado: values.estado,
       };
       await origenService.save(data);
@@ -633,7 +635,15 @@ export default function OriginAssociationView({ area, onClose }: OriginAssociati
                               Nombre del origen
                             </FormLabel>
                             <FormControl>
-                              <Input placeholder="Ej: Cliente A" {...field} />
+                              <Input
+                                placeholder="EJ CLIENTE A"
+                                {...field}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    normalizeOrigenNombre(e.target.value),
+                                  )
+                                }
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>

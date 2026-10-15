@@ -16,7 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Edit, UserPlus } from 'lucide-react';
+import { MoreHorizontal, Edit, UserPlus, ListTree } from 'lucide-react';
 import type { ElementoAsociacion } from '@/types/interfaces';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,9 +28,10 @@ interface ElementoAsociacionTableProps {
   isLoading: boolean;
   onEdit: (record: ElementoAsociacion) => void;
   onAddNew: () => void;
+  onManageSubcomponentes: (record: ElementoAsociacion) => void;
 }
 
-export default function ElementoAsociacionTable({ records, isLoading, onEdit, onAddNew }: ElementoAsociacionTableProps) {
+export default function ElementoAsociacionTable({ records, isLoading, onEdit, onAddNew, onManageSubcomponentes }: ElementoAsociacionTableProps) {
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(PAGE_SIZE_OPTIONS[0]);
   const [filter, setFilter] = useState("");
@@ -127,6 +128,10 @@ export default function ElementoAsociacionTable({ records, isLoading, onEdit, on
                             <DropdownMenuItem onClick={() => onEdit(record)}>
                                 <Edit className="mr-2 h-4 w-4" />
                                 Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onManageSubcomponentes(record)}>
+                                <ListTree className="mr-2 h-4 w-4" />
+                                Subcomponentes
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                         </DropdownMenu>

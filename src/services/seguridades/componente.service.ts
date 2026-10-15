@@ -26,6 +26,15 @@ export const componenteService = {
     return response.json();
   },
 
+  /** Unidades del componente. Si la ruta liviana no está desplegada, usa el registro publicado. */
+  async getUnidades(id: number | string): Promise<BodyResponse<Componente>> {
+    const response = await fetchWithAuth(`${API_URL}/${id}/unidades`);
+    if (!response.ok) {
+      return this.getById(id);
+    }
+    return response.json();
+  },
+
   async save(data: Componente): Promise<BodyResponse<Componente>> {
     const response = await fetchWithAuth(API_URL, {
       method: 'POST',
@@ -45,7 +54,20 @@ export const componenteService = {
     });
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({ message: 'Error desconocido' }));
-      throw new Error(errorBody.message || `Failed to delete tipo-usuario-aplicacion with id ${id}`);
+      throw new Error(errorBody.message || `Failed to delete componente with id ${id}`);
     }
+  },
+
+  async getComponentesByCodigoAreaTipoMotivo(codigo_area_tipo_motivo: number): Promise<BodyResponse<Componente>> {
+    const response = await fetchWithAuth(API_URL + '/componentesCatm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo_area_tipo_motivo: codigo_area_tipo_motivo }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({ message: 'Error desconocido' }));
+      throw new Error(errorBody.message || 'Failed to fetch componentes by codigo_area_tipo_motivo');
+    }
+    return response.json();
   },
 };

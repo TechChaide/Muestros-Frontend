@@ -17,6 +17,7 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ChevronsUpDown, BookUser, Shield, Users, Settings, Building, MenuSquare, UserCog, UserPlus, Minus, LogOut, CircleUser, AppWindow } from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { menuService } from '@/services/seguridades/menu.service';
@@ -39,19 +40,16 @@ type MenuNode = {
     children?: MenuNode[];
 };
 
-// Mapa de iconos string -> componente Lucide
-const iconMap: Record<string, React.ComponentType<any>> = {
-    Shield,
-    BookUser,
-    Users,
-    Settings,
-    Building,
-    MenuSquare,
-    UserCog,
-    UserPlus,
-    CircleUser,
-    AppWindow,
-};
+// Resuelve el nombre del icono (string del backend) al componente de Lucide.
+// Primero busca en el namespace completo (cubre cualquier icono que el admin
+// haya configurado); si no existe, cae al fallback de Shield.
+function getIcon(name: string | undefined | null): React.ComponentType<any> {
+    const value = (LucideIcons as Record<string, unknown>)[name ?? ''];
+    if (typeof value === 'function' || (typeof value === 'object' && value !== null && 'render' in (value as object))) {
+        return value as React.ComponentType<any>;
+    }
+    return Shield;
+}
 
 // Construir árbol de menú a partir de un array plano basándose en padre-hijo
 function buildMenuTree(flatItems: MenuNode[]): MenuNode[] {
@@ -164,7 +162,7 @@ function filterActive(nodes: MenuNode[]): MenuNode[] {
 // Transformar árbol backend -> estructura esperada por RecursiveMenu
 function toRecursiveItems(nodes: MenuNode[]): any[] {
     return nodes.map(n => {
-        const IconComp = iconMap[n.icono] || Shield;
+        const IconComp = getIcon(n.icono);
         const hasChildren = !!(n.children && n.children.length);
         // Reglas:
         // '.' => raíz (no navegable)
@@ -682,7 +680,7 @@ export default function DashboardLayout({
                         </SidebarContent>
                         <UserPanel />
                     </Sidebar>
-                    <div className="flex flex-col flex-1 relative h-full overflow-y-auto">
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col relative h-full overflow-y-auto overflow-x-hidden">
                         <MobileMenuButton />
                         {children}
                     </div>

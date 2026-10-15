@@ -7,6 +7,26 @@ import { fetchWithAuth } from "@/lib/http-client";
 
 const API_URL = `${environment.appAPI}/api/asociacion`;
 
+export interface CreateAsociacionInput {
+  codigo_asociacion: number;
+  codigo_elemento_asociacion: number;
+  codigo_componente: number;
+  /**
+   * FK a `area_tipo_motivo`. Reemplaza al antiguo `codigo_tipo_motivo`.
+   * Identifica de forma única la combinación área+motivo.
+   */
+  codigo_area_tipo_motivo: number;
+  /** FK a `tipo_medicion`. */
+  codigo_tipo_medicion: number;
+  tabla: string;
+  tabla_version: number;
+  orden: number;
+  etiqueta: string;
+  estado: string;
+  fecha_modificacion?: string;
+  usuario_modificacion?: string;
+}
+
 export const asociacionService = {
   async getAll(): Promise<BodyListResponse<Asociacion>> {
     const response = await fetchWithAuth(API_URL);
@@ -48,4 +68,19 @@ export const asociacionService = {
       throw new Error(errorBody.message || `Failed to delete tipo-usuario-aplicacion with id ${id}`);
     }
   },
+
+  async getTablaByAreaTipoMotivo(codigo_area_tipo_motivo: number, codigo_componente: number): Promise<BodyListResponse<Asociacion>> {
+
+  const response = await fetchWithAuth(API_URL + '/getTablaByCodigoAreaTipoMotivoYComponente', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo_area_tipo_motivo: codigo_area_tipo_motivo, codigo_componente: codigo_componente }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({ message: 'Error desconocido' }));
+      throw new Error(errorBody.message || 'Failed to fetch asociaciones by area-tipo-motivo');
+    }
+    return response.json();
+  },
+
 };

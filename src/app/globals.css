@@ -77,3 +77,207 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* iOS/Safari zooms inputs with font-size < 16px. Keep 16px on mobile. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Animación de escaneo estilo iOS para el módulo de captura QR / barras */
+@keyframes ios-scanline {
+  0% {
+    transform: translateY(0%);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+.animate-ios-scanline {
+  animation: ios-scanline 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Flash tipo obturador al capturar un código */
+@keyframes capture-flash {
+  0% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-capture-flash {
+  animation: capture-flash 0.55s ease-out forwards;
+}
+
+/* "Pop" elástico del check de confirmación */
+@keyframes capture-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  55% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-capture-pop {
+  animation: capture-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* ============================================================================
+   FlipClock — animación 3D tipo "We're Launching Soon"
+   - Cada FlipCard tiene dos paneles (top/bottom).
+   - Cuando el dígito cambia, .flip-card__top rota 0 -> -90deg
+     (el dígito viejo cae hacia adelante) y .flip-card__bottom rota
+     90deg -> 0deg (el dígito nuevo aparece desde atrás).
+   - Duración total: 0.6s. Perspectiva en el contenedor padre.
+   ============================================================================ */
+
+.flip-card__top,
+.flip-card__bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Fondo azul corporativo + números blancos */
+  background: linear-gradient(
+    180deg,
+    #0066cc 0%,
+    #0055b8 100%
+  );
+  color: #ffffff;
+  /* Suaviza el render 3D */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Panel superior: el digito VIEJO, alineado al fondo del panel
+   para que cuando el panel rote, el numero se vea centrado. */
+.flip-card__top {
+  top: 0;
+  align-items: flex-end;
+  border-top-left-radius: 0.375rem;
+  border-top-right-radius: 0.375rem;
+  /* Sombra interna sutil arriba para dar volumen */
+  box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.15);
+  transform-origin: bottom center;
+}
+
+/* Cuando el padre aplica `--flipping`, reproducimos la animacion 3D */
+.flip-card__top--flipping {
+  animation: flip-top 0.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+}
+
+/* Panel inferior: el digito NUEVO, alineado al inicio del panel.
+   En estado base (sin flipping) el panel esta visible y muestra el
+   digito actual. Solo cuando se aplica --flipping arranca la animacion
+   desde rotateX(90deg) hasta rotateX(0deg). */
+.flip-card__bottom {
+  bottom: 0;
+  align-items: flex-start;
+  border-bottom-left-radius: 0.375rem;
+  border-bottom-right-radius: 0.375rem;
+  /* Sombra interna sutil abajo */
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.2);
+  transform-origin: top center;
+}
+
+.flip-card__bottom--flipping {
+  /* Estado inicial de la animacion: arranca "detras" en 90deg. */
+  transform: rotateX(90deg);
+  animation: flip-bottom 0.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+}
+
+/* Numeros centrados verticalmente en cada mitad del card.
+   Usamos translateY del 50% para que el numero del top se vea en
+   la parte inferior del panel superior (justo en la bisagra). */
+.flip-card__num {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 2.75rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.flip-card__top .flip-card__num {
+  transform: translateY(50%);
+}
+
+.flip-card__bottom .flip-card__num {
+  transform: translateY(-50%);
+}
+
+@media (min-width: 640px) {
+  .flip-card__num {
+    font-size: 3.5rem;
+  }
+}
+
+/* Linea de division central: simula la "bisagra" del flip clock */
+.flip-card__divider {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
+  transform: translateY(-0.5px);
+  z-index: 3;
+}
+
+/* Animaciones: solo se reproducen cuando el padre añade una clase
+   `flipping` al card. Para simplificar, las declaramos aqui SIEMPRE
+   que el componente renderice; si el digito no cambia, el efecto se
+   ve en el primer render pero es imperceptible (rotacion 0). */
+
+@keyframes flip-top {
+  0% {
+    transform: rotateX(0deg);
+  }
+  100% {
+    transform: rotateX(-90deg);
+  }
+}
+
+@keyframes flip-bottom {
+  0% {
+    transform: rotateX(90deg);
+  }
+  100% {
+    transform: rotateX(0deg);
+  }
+}
+
+/* NOTA: Las animaciones se aplican SOLO cuando el padre añade la
+   clase `flip-card__top--flipping` / `flip-card__bottom--flipping`
+   (controlado desde React cuando se detecta un cambio real de
+   digito). Ver paro-en-curso-modal.tsx. */

@@ -6,11 +6,13 @@ import type { ElementoAsociacion } from '@/types/interfaces';
 import { elementoAsociacionService } from '@/services/seguridades/elementoAsociacion.service';
 import ElementoAsociacionForm from './components/form';
 import ElementoAsociacionTable from './components/table';
+import SubcomponentesModal from './components/subcomponentes-modal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function ElementosAsociacionPage() {
     const [records, setRecords] = useState<ElementoAsociacion[]>([]);
     const [selectedRecord, setSelectedRecord] = useState<ElementoAsociacion | null>(null);
+    const [subcomponentesElemento, setSubcomponentesElemento] = useState<ElementoAsociacion | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [hasFetched, setHasFetched] = useState(false);
@@ -66,6 +68,10 @@ export default function ElementosAsociacionPage() {
         }
     }
 
+    const handleManageSubcomponentes = (record: ElementoAsociacion) => {
+        setSubcomponentesElemento(record);
+    };
+
     const showTable = hasFetched && !isFormOpen && records.length > 0;
 
     return (
@@ -91,8 +97,15 @@ export default function ElementosAsociacionPage() {
                     isLoading={isLoading}
                     onEdit={handleEdit}
                     onAddNew={handleAddNew}
+                    onManageSubcomponentes={handleManageSubcomponentes}
                 />
             ) : null}
+
+            <SubcomponentesModal
+                open={!!subcomponentesElemento}
+                elemento={subcomponentesElemento}
+                onClose={() => setSubcomponentesElemento(null)}
+            />
         </div>
     );
 }

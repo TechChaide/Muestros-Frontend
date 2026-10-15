@@ -45,7 +45,20 @@ export const subcomponentesService = {
     });
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({ message: 'Error desconocido' }));
-      throw new Error(errorBody.message || `Failed to delete area-tipo-motivo with id ${id}`);
+      throw new Error(errorBody.message || `Failed to delete subcomponentes with id ${id}`);
     }
+  },
+
+  async getSubcomponentesByCodigoElementoAsociacion(codigoElementoAsociacion: number): Promise<BodyListResponse<Subcomponentes>> {
+     const response = await fetchWithAuth(API_URL + '/obtenerSubcomponentesByCodigoElementoAsociacion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo_elemento_asociacion: codigoElementoAsociacion }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({ message: 'Error desconocido' }));
+      throw new Error(errorBody.message || 'Failed to fetch subcomponentes by codigoElementoAsociacion');
+    }
+    return response.json();
   },
 };

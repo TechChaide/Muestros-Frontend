@@ -42,6 +42,16 @@ const formatDateForSQLServer = (date: Date): string => {
 const formSchema = z.object({
     codigo_componente: z.number().optional(),
     nombre_componente: z.string().min(1, "El nombre del componente es requerido."),
+    unidades: z
+        .string()
+        .optional()
+        .transform((v) => (v ?? "").trim())
+        .default(""),
+    RespCtrlProd: z
+        .string()
+        .optional()
+        .transform((v) => (v ?? "").trim())
+        .default(""),
     estado: z.string({ required_error: "El estado es requerido." }),
 });
 
@@ -61,6 +71,8 @@ export default function ComponenteForm({ record, onSuccess, onCancel }: Componen
         defaultValues: {
             codigo_componente: record?.codigo_componente ?? 0,
             nombre_componente: record?.nombre_componente ?? '',
+            unidades: record?.unidades ?? '',
+            RespCtrlProd: record?.RespCtrlProd ?? '',
             estado: record?.estado ?? 'A',
         },
     });
@@ -68,17 +80,15 @@ export default function ComponenteForm({ record, onSuccess, onCancel }: Componen
     const onSubmit = async (values: z.infer<typeof formSchema>) => {
         setIsLoading(true);
 
-        const data: any = {
+        const data: Componente = {
             codigo_componente: values.codigo_componente || 0,
-            nombre_componente: values.nombre_componente,
+            nombre_componente: values.nombre_componente.trim(),
+            unidades: (values.unidades ?? "").trim(),
+            RespCtrlProd: values.RespCtrlProd ?? "",
             estado: values.estado,
+            usuario_modificacion: user?.name || 'admin',
+            fecha_modificacion: formatDateForSQLServer(new Date()),
         };
-
-        // Solo agregar campos de auditoría si es una edición
-        if (record) {
-            data.usuario_modificacion = user?.name || 'admin';
-            data.fecha_modificacion = formatDateForSQLServer(new Date());
-        }
 
         try {
             await componenteService.save(data);
@@ -116,6 +126,51 @@ export default function ComponenteForm({ record, onSuccess, onCancel }: Componen
                                     <FormControl>
                                         <Input placeholder="Ej: Componente A" {...field} />
                                     </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="unidades"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>
+                                        Unidades{" "}
+                                        <span className="font-normal text-muted-foreground">
+                                            (opcional)
+                                        </span>
+                                    </FormLabel>
+                                    <FormControl>
+                                        <Input placeholder="Ej: kg, und, m" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="RespCtrlProd"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>
+                                        Responsable Ctrl. Producción{" "}
+                                        <span className="font-normal text-muted-foreground">
+                                            (opcional)
+                                        </span>
+                                    </FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            placeholder="Ej: Juan Pérez, María López o Carlos Ruiz & Ana Vega"
+                                            maxLength={150}
+                                            {...field}
+                                            value={field.value ?? ''}
+                                        />
+                                    </FormControl>
+                                    <p className="text-xs text-muted-foreground">
+                                        Separa varios responsables con <code>,</code>{' '}
+                                        <code>o</code> o <code>&amp;</code>.
+                                    </p>
                                     <FormMessage />
                                 </FormItem>
                             )}

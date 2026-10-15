@@ -48,4 +48,17 @@ export const causaDefectoService = {
       throw new Error(errorBody.message || `Failed to delete tipo-usuario-aplicacion with id ${id}`);
     }
   },
+
+  async getCausasDefectoByCodigoOrigenComponente(codigo_origen_componente: number): Promise<BodyResponse<CausaDefecto>> {
+    const response = await fetchWithAuth(API_URL +'/recuperarCausasDefectoByCodigoOC', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo_origen_componente: codigo_origen_componente }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({ message: 'Error desconocido' }));
+      throw new Error(errorBody.message || 'Failed to save causa de defecto');
+    }
+    return response.json();
+  },
 };

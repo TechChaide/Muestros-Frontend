@@ -3,6 +3,7 @@ import type { Auth, Usuario } from "@/types/interfaces";
 import type { BodyResponse } from "@/types/body-response";
 import { environment } from "@/environments/environments.prod";
 import { fetchWithAuth } from "@/lib/http-client";
+import { BodyListResponse } from "@/types/body-list-response";
 
 const API_URL = `${environment.apiURL}/api/auths/login`;
 const API_URL_CENTRAL = `${environment.apiURL}/api/auths/loginCentral`;
@@ -50,5 +51,19 @@ export const authService = {
     }
     
     return response.json() as Promise<BodyResponse<Auth>>;
+  },
+
+  async getUsersInfo(): Promise<BodyListResponse<any[]>> {
+    const response = await fetchWithAuth(`${environment.apiURL}/api/usuarios/fichasUsuarios`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({ message: 'Error al obtener usuarios.' }));
+      throw new Error(errorBody.message || 'Ocurrió un error desconocido.');
+    }
+
+    return response.json();
   },
 };

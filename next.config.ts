@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
 
   basePath: environment.basePath,
 
+  // Exponemos MODOS al bundle del cliente (no tiene prefijo NEXT_PUBLIC_).
+  env: {
+    MODOS: process.env.MODOS ?? '',
+  },
+
   output: 'standalone',
   /* config options here */
   typescript: {

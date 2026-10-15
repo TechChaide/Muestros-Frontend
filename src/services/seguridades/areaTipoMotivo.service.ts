@@ -48,4 +48,19 @@ export const areaTipoMotivoService = {
       throw new Error(errorBody.message || `Failed to delete area-tipo-motivo with id ${id}`);
     }
   },
+
+  ///////////////////////////////////////////Metodos especializados:
+
+    async getTiposMotivoByCodigoArea(codigo_area: number): Promise<BodyResponse<AreaTipoMotivo>> {
+    const response = await fetchWithAuth(API_URL + '/GetMotivosByArea', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo_area: codigo_area }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({ message: 'Error desconocido' }));
+      throw new Error(errorBody.message || 'Failed to save area-tipo-motivo');
+    }
+    return response.json();
+  },
 };

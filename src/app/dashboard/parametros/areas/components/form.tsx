@@ -22,6 +22,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import UserAutocomplete from '@/components/ui/user-autocomplete';
 import type { Area } from '@/types/interfaces';
 import { areaService } from '@/services/seguridades/area.service';
 import { useState } from 'react';
@@ -37,10 +38,33 @@ const inverseRegionalMap: Record<string, string> = {
   'Guayaquil': 'GYE',
 };
 
+/**
+ * Separa una cadena de responsables usando como delimitadores
+ * la coma, la "o"/"O" o el "&". Cada token vacío se descarta
+ * y los espacios alrededor de los separadores se eliminan.
+ *
+ * Ejemplo: "Juan Pérez, María López o Carlos Ruiz & Ana Vega"
+ *        → ["Juan Pérez", "María López", "Carlos Ruiz", "Ana Vega"]
+ */
+export function splitResponsables(value: string | null | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(/\s*,\s*|\s+[oO]\s+|\s*&\s*/g)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 const formSchema = z.object({
     codigo_area: z.number().optional(),
     nombre_area: z.string().min(1, "El nombre del área es requerido."),
     nombre_ficha_social: z.string().min(1, "El nombre de la ficha social es requerido."),
+    // Opcionales: no todas las áreas tienen usuarios de calidad ni responsables.
+    usuario_calidad: z.string().optional().default(""),
+    respCtrlProd: z
+        .string()
+        .optional()
+        .transform((v) => (v ?? "").trim())
+        .default(""),
     regional: z.string({ required_error: "La regional es requerida." }),
     estado: z.string({ required_error: "El estado es requerido." }),
 });
@@ -61,6 +85,8 @@ export default function AreaForm({ record, onSuccess, onCancel }: AreaFormProps)
             codigo_area: record?.codigo_area ?? 0,
             nombre_area: record?.nombre_area ?? '',
             nombre_ficha_social: record?.nombre_ficha_social ?? '',
+            usuario_calidad: record?.usuario_calidad ?? '',
+            respCtrlProd: record?.respCtrlProd ?? '',
             regional: record?.regional ? regionalMap[record.regional] ?? record.regional : '',
             estado: record?.estado ?? 'A',
         },
@@ -70,10 +96,14 @@ export default function AreaForm({ record, onSuccess, onCancel }: AreaFormProps)
         setIsLoading(true);
         
         // Construir el objeto según si es creación o edición
+        // Se guarda `respCtrlProd` tal cual lo escribió el usuario,
+        // preservando los separadores que eligió (",", "o", "&").
         const data: any = {
             codigo_area: values.codigo_area || 0,
             nombre_area: values.nombre_area,
             nombre_ficha_social: values.nombre_ficha_social,
+            usuario_calidad: values.usuario_calidad ?? "",
+            respCtrlProd: values.respCtrlProd ?? "",
             regional: inverseRegionalMap[values.regional] || values.regional,
             estado: values.estado,
         };
@@ -127,6 +157,60 @@ export default function AreaForm({ record, onSuccess, onCancel }: AreaFormProps)
                                     <FormControl>
                                         <Input placeholder="Ej: Ficha Social - Producción" {...field} />
                                     </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="usuario_calidad"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>
+                                        Usuarios de Calidad{" "}
+                                        <span className="font-normal text-muted-foreground">
+                                            (opcional)
+                                        </span>
+                                    </FormLabel>
+                                    <FormControl>
+                                        {/* Autocomplete multi-usuario contra
+                                            authService.getUsersInfo(). Filtra por
+                                            NOMBRE, CODIGO o CEDULA; cada selección
+                                            se acumula como badge y se persiste como
+                                            `CODIGO — NOMBRE & CODIGO2 — NOMBRE2`. */}
+                                        <UserAutocomplete
+                                            value={field.value ?? ""}
+                                            onChange={field.onChange}
+                                            placeholder="Busca y agrega uno o varios usuarios..."
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="respCtrlProd"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>
+                                        Responsable Ctrl. Producción{" "}
+                                        <span className="font-normal text-muted-foreground">
+                                            (opcional)
+                                        </span>
+                                    </FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            placeholder="Ej: Juan Pérez, María López o Carlos Ruiz & Ana Vega"
+                                            maxLength={150}
+                                            {...field}
+                                            value={field.value ?? ''}
+                                        />
+                                    </FormControl>
+                                    <p className="text-xs text-muted-foreground">
+                                        Separa varios responsables con <code>,</code>{' '}
+                                        <code>o</code> o <code>&amp;</code>.
+                                    </p>
                                     <FormMessage />
                                 </FormItem>
                             )}

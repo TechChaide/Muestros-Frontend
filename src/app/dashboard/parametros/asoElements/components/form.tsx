@@ -30,6 +30,10 @@ const formSchema = z.object({
     codigo_elemento_asociacion: z.number().optional(),
     columna: z.string().min(1, "El nombre de la columna es requerido."),
     descripcion: z.string().min(1, "La descripción es requerida."),
+    data_type: z.string({ required_error: "El tipo de dato es requerido." })
+        .refine((val) => val === 'number' || val === 'string', {
+            message: "El tipo de dato debe ser 'number' o 'string'.",
+        }),
     estado: z.string({ required_error: "El estado es requerido." }),
 });
 
@@ -49,6 +53,7 @@ export default function ElementoAsociacionForm({ record, onSuccess, onCancel }: 
             codigo_elemento_asociacion: record?.codigo_elemento_asociacion ?? 0,
             columna: record?.columna ?? '',
             descripcion: record?.descripcion ?? '',
+            data_type: record?.data_type ?? 'string',
             estado: record?.estado ?? 'A',
         },
     });
@@ -61,6 +66,7 @@ export default function ElementoAsociacionForm({ record, onSuccess, onCancel }: 
             codigo_elemento_asociacion: values.codigo_elemento_asociacion || 0,
             columna: values.columna,
             descripcion: values.descripcion,
+            data_type: values.data_type,
             estado: values.estado,
         };
 
@@ -113,6 +119,35 @@ export default function ElementoAsociacionForm({ record, onSuccess, onCancel }: 
                                     <FormControl>
                                         <Input placeholder="Ej: Descripción del elemento" {...field} />
                                     </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="data_type"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Tipo de Dato</FormLabel>
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Seleccione un tipo de dato" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="string">
+                                                <div className="flex items-center">
+                                                    string
+                                                </div>
+                                            </SelectItem>
+                                            <SelectItem value="number">
+                                                <div className="flex items-center">
+                                                    number
+                                                </div>
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                     <FormMessage />
                                 </FormItem>
                             )}

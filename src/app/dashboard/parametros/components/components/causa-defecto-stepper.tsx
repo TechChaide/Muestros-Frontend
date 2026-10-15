@@ -19,6 +19,10 @@ import {
   Trash2,
   Pencil,
   Unlink,
+  MoreHorizontal,
+  Building2,
+  Boxes,
+  Hash,
 } from "lucide-react";
 import {
   Dialog,
@@ -27,15 +31,27 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type {
+  Area,
+  AreaTipoMotivo,
   CausaDefecto,
   Componente,
   Origen,
   OrigenComponente,
+  TipoMotivo,
 } from "@/types/interfaces";
 import { origenComponenteService } from "@/services/seguridades/origenComponente.service";
 import { origenService } from "@/services/seguridades/origen.service";
 import { causaDefectoService } from "@/services/seguridades/causaDefecto.service";
+import { areaTipoMotivoService } from "@/services/seguridades/areaTipoMotivo.service";
+import { tipoMotivoService } from "@/services/seguridades/tipoMotivo.service";
+import { areaService } from "@/services/seguridades/area.service";
 
 const formatDateForSQLServer = (date: Date): string => {
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -72,16 +88,23 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
   const { toast } = useToast();
   const { user } = useUser();
 
-  const [origenesDelComponente, setOrigenesDelComponente] = useState<Origen[]>(
-    []
-  );
+  const [origenesDelComponente, setOrigenesDelComponente] = useState<Origen[]>([]);
+  const [todosOrigenes, setTodosOrigenes] = useState<Origen[]>([]);
   const [selectedOrigenIds, setSelectedOrigenIds] = useState<number[]>([]);
-  const [causasAll, setCausasAll] = useState<CausaDefecto[]>([]);
-  const [causasAllOrigenComponente, setCausasAllOrigenComponente] = useState<
-    CausaDefecto[]
-  >([]);
+  // Causas del OC del origen seleccionado (cargadas con el endpoint específico).
+  const [causasDelOrigen, setCausasDelOrigen] = useState<CausaDefecto[]>([]);
+  const [isLoadingCausas, setIsLoadingCausas] = useState(false);
   const [selectedCausaIds, setSelectedCausaIds] = useState<number[]>([]);
   const [pendingCausas, setPendingCausas] = useState<PendingCausa[]>([]);
+  const [areasList, setAreasList] = useState<Area[]>([]);
+  const [atmList, setAtmList] = useState<AreaTipoMotivo[]>([]);
+  const [tipoMotivos, setTipoMotivos] = useState<TipoMotivo[]>([]);
+  // Mapa OC por PK (codigo_origen_componente) — necesario para resolver el
+  // origen de cada causa y para encontrar el OC del origen seleccionado.
+  const [ocPorCodigo, setOcPorCodigo] = useState<Record<number, OrigenComponente>>({});
+  // Mapa OC por origen del componente: codigo_origen → OrigenComponente.
+  // Permite encontrar rápidamente el OC al seleccionar un origen en paso 1.
+  const [ocPorOrigen, setOcPorOrigen] = useState<Record<number, OrigenComponente>>({});
   const [newCausaNombre, setNewCausaNombre] = useState("");
   const [filter, setFilter] = useState("");
 
@@ -95,13 +118,18 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [origenesRes, ocRes, causasRes] = await Promise.all([
-        origenService.getAll(),
-        origenComponenteService.getAll(),
-        causaDefectoService.getAll(),
-      ]);
+      // Solo cargamos metadatos: orígenes, OCs, ATMs, áreas y motivos.
+      // Las causas se cargan dinámicamente al seleccionar un origen (paso 1)
+      // usando getCausasDefectoByCodigoOrigenComponente.
+      const [origenesRes, ocRes, atmRes, motivosRes, areasRes] =
+        await Promise.all([
+          origenService.getAll(),
+          origenComponenteService.getAll(),
+          areaTipoMotivoService.getAll(),
+          tipoMotivoService.getAll(),
+          areaService.getAll(),
+        ]);
 
-      // IDs de orígenes ya asociados al componente
       const ocsDelComponente = (
         (ocRes.data || []) as OrigenComponente[]
       ).filter(
@@ -110,27 +138,36 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
       );
       const idsOrigenes = new Set(ocsDelComponente.map((o) => o.codigo_origen));
 
-      // Objetos Origen resultantes (para mostrar en las cards)
+      // Mapa global OC por PK
+      const allOcsActivos = ((ocRes.data || []) as OrigenComponente[]).filter(
+        (oc) => oc.estado === "A"
+      );
+      const ocPorCodigoMap: Record<number, OrigenComponente> = {};
+      allOcsActivos.forEach((oc) => { ocPorCodigoMap[oc.codigo_origen_componente] = oc; });
+      setOcPorCodigo(ocPorCodigoMap);
+
+      // Mapa OC por origen (solo los del componente) para lookup rápido
+      const ocPorOrigenMap: Record<number, OrigenComponente> = {};
+      ocsDelComponente.forEach((oc) => { ocPorOrigenMap[oc.codigo_origen] = oc; });
+      setOcPorOrigen(ocPorOrigenMap);
+
       const allOrigenes = (origenesRes.data || []) as Origen[];
-      const origenesAsoc = allOrigenes.filter(
-        (o) => idsOrigenes.has(o.codigo_origen) && o.estado === "A"
+      const allOrigenesActivos = allOrigenes.filter((o) => o.estado === "A");
+      setTodosOrigenes(allOrigenesActivos);
+      setOrigenesDelComponente(
+        allOrigenesActivos.filter((o) => idsOrigenes.has(o.codigo_origen))
       );
-      setOrigenesDelComponente(origenesAsoc);
 
-      // CausaDefecto globales (activas) - se mostrarán como cards en paso 2
-      const causasActivas = ((causasRes.data || []) as CausaDefecto[]).filter(
-        (c) => c.estado === "A"
-      );
-      setCausasAll(causasActivas);
+      setAtmList(((atmRes.data || []) as AreaTipoMotivo[]).filter((a) => a.estado === "A"));
+      setTipoMotivos(((motivosRes.data || []) as TipoMotivo[]).filter((m) => m.estado === "A"));
+      setAreasList(((areasRes.data || []) as Area[]).filter((a) => a.estado === "A"));
 
-      // Causas ya linkeadas a cualquier OrigenComponente (para preseleccionar)
-      const causasYaLink = ((causasRes.data || []) as CausaDefecto[]).filter(
-        (c) => c.estado === "A" && c.codigo_origen_componente != null
-      );
-      setCausasAllOrigenComponente(causasYaLink);
+      // Limpiar selección al recargar
+      setSelectedOrigenIds([]);
+      setSelectedCausaIds([]);
+      setCausasDelOrigen([]);
     } catch (error) {
-      const msg =
-        error instanceof Error ? error.message : "No se pudo cargar los datos.";
+      const msg = error instanceof Error ? error.message : "No se pudo cargar los datos.";
       toast({ title: "Error", description: msg, variant: "destructive" });
     } finally {
       setIsLoading(false);
@@ -141,9 +178,58 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
     fetchAll();
   }, [fetchAll]);
 
+  /**
+   * Cuando el usuario selecciona un origen en el paso 1:
+   *  1. Busca el OC del origen (codigo_origen_componente)
+   *  2. Llama al endpoint eficiente para traer SOLO las causas de ese OC
+   *  3. Pre-selecciona todas esas causas (ya estaban asociadas)
+   */
+  useEffect(() => {
+    if (selectedOrigenIds.length === 0) {
+      setCausasDelOrigen([]);
+      setSelectedCausaIds([]);
+      return;
+    }
+    const origenId = selectedOrigenIds[0];
+    const oc = ocPorOrigen[origenId];
+    if (!oc) {
+      setCausasDelOrigen([]);
+      setSelectedCausaIds([]);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setIsLoadingCausas(true);
+      try {
+        const res = await causaDefectoService.getCausasDefectoByCodigoOrigenComponente(
+          oc.codigo_origen_componente
+        );
+        if (cancelled) return;
+        // El endpoint devuelve BodyResponse<CausaDefecto> donde `data` puede
+        // ser un array o un objeto único dependiendo del backend.
+        const rawData = (res as unknown as { data: unknown }).data;
+        const causas = (Array.isArray(rawData) ? rawData : rawData ? [rawData] : []) as CausaDefecto[];
+        const causasActivas = causas.filter((c) => c.estado === "A");
+        setCausasDelOrigen(causasActivas);
+        setSelectedCausaIds(causasActivas.map((c) => c.codigo_causa_defecto));
+      } catch {
+        if (!cancelled) {
+          setCausasDelOrigen([]);
+          setSelectedCausaIds([]);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingCausas(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedOrigenIds]);
+
   const toggleOrigen = (id: number) => {
+    // Selección única (radio): elegir un origen deselecciona el anterior.
     setSelectedOrigenIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      prev.includes(id) ? [] : [id]
     );
   };
 
@@ -215,14 +301,38 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
         typeof window !== "undefined"
           ? JSON.parse(localStorage.getItem("user") || "{}")?.usuario
           : user?.name || "admin";
-      await causaDefectoService.save({
+      /*
+        Soft-delete real: NO tocamos `codigo_origen_componente` (esa es la FK
+        que identifica la asociación). Solo bajamos a estado='I'. Si en el
+        futuro queremos re-asociar la misma causa a otro OC, basta con
+        volver a guardar con estado='A' y el FK correcto.
+      */
+      const payload = {
         ...causa,
-        codigo_origen_componente: null as unknown as number,
+        estado: "I",
         usuario_modificacion: usuarioSession,
         fecha_modificacion: formatDateForSQLServer(new Date()),
+      };
+      await causaDefectoService.save(payload);
+
+      toast({
+        title: "Desasociada",
+        description: "Causa desasociada correctamente.",
+        variant: "success",
       });
-      toast({ title: "Desasociada", description: "La causa fue desasociada.", variant: "success" });
-      fetchAll();
+      // Recargamos solo las causas del origen actual (más eficiente que fetchAll)
+      const origenId = selectedOrigenIds[0];
+      const oc = origenId != null ? ocPorOrigen[origenId] : null;
+      if (oc) {
+        const res = await causaDefectoService.getCausasDefectoByCodigoOrigenComponente(
+          oc.codigo_origen_componente
+        );
+        const rawData = (res as unknown as { data: unknown }).data;
+        const causas = (Array.isArray(rawData) ? rawData : rawData ? [rawData] : []) as CausaDefecto[];
+        const causasActivas = causas.filter((c) => c.estado === "A");
+        setCausasDelOrigen(causasActivas);
+        setSelectedCausaIds(causasActivas.map((c) => c.codigo_causa_defecto));
+      }
     } catch (error) {
       toast({
         title: "Error",
@@ -232,17 +342,85 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
     }
   };
 
+  /*
+    Eliminación / desactivar de causa a nivel global queda FUERA de este
+    stepper a propósito: hoy "Eliminar" haría exactamente lo mismo que
+    "Desasociar" (ambos son estado='I' sobre la misma fila). El botón
+    Eliminar se reintroducirá cuando el backend exponga un flag
+    `es_plantilla` (o tabla separada) que permita distinguir
+    "borrar del sistema" vs "quitar asociación con este OC".
+  */
+
   const causasFiltradas = useMemo(() => {
-    if (!filter.trim()) return causasAll;
+    if (!filter.trim()) return causasDelOrigen;
     const f = filter.toLowerCase();
-    return causasAll.filter((c) =>
+    return causasDelOrigen.filter((c) =>
       c.nombre_causa_defecto.toLowerCase().includes(f)
     );
-  }, [causasAll, filter]);
+  }, [causasDelOrigen, filter]);
 
-  // Total de OrigenComponente que se crearán/reutilizarán:
-  //   por cada origen seleccionado, una asociación a cada causa seleccionada + cada causa pendiente
-  const totalCombinaciones = (selectedCausaIds.length + pendingCausas.length);
+  // ===== Mapas de resolución para mostrar contexto en cada card de causa =====
+  /** areaPorCodigo: codigo_area → Area */
+  const areaPorCodigo = useMemo(() => {
+    const m = new Map<number, Area>();
+    areasList.forEach((a) => m.set(a.codigo_area, a));
+    return m;
+  }, [areasList]);
+
+  /** atmPorId: codigo_area_tipo_motivo → AreaTipoMotivo */
+  const atmPorId = useMemo(() => {
+    const m = new Map<number, AreaTipoMotivo>();
+    atmList.forEach((a) => m.set(a.codigo_area_tipo_motivo, a));
+    return m;
+  }, [atmList]);
+
+  /** motivoPorAtm: codigo_area_tipo_motivo → nombre_tipo_motivo */
+  const motivoPorAtm = useMemo(() => {
+    const map: Record<number, string> = {};
+    atmList.forEach((a) => {
+      const m = tipoMotivos.find(
+        (tm) => tm.codigo_tipo_motivo === a.codigo_tipo_motivo
+      );
+      if (m) map[a.codigo_area_tipo_motivo] = m.nombre_tipo_motivo;
+    });
+    return map;
+  }, [atmList, tipoMotivos]);
+
+  /** origenPorCodigo: codigo_origen → Origen (de TODOS los orígenes, no solo los del componente) */
+  const origenPorCodigo = useMemo(() => {
+    const m = new Map<number, Origen>();
+    todosOrigenes.forEach((o) => m.set(o.codigo_origen, o));
+    return m;
+  }, [todosOrigenes]);
+
+  /**
+   * Dado un CausaDefecto ya linkeado, devuelve un objeto con su
+   * contexto completo (origen, área, motivo, atm, oc). Si la causa no
+   * está linkeada o su OC está huérfano, devuelve `null`.
+   */
+  const contextoCausa = useMemo(() => {
+    type Contexto = {
+      oc: OrigenComponente;
+      origen: Origen | null;
+      atm: AreaTipoMotivo | null;
+      motivo: string;
+      area: Area | null;
+    };
+    const map: Record<number, Contexto | null> = {};
+    causasDelOrigen.forEach((c) => {
+      if (c.codigo_origen_componente == null) { map[c.codigo_causa_defecto] = null; return; }
+      const oc = ocPorCodigo[c.codigo_origen_componente];
+      if (!oc) { map[c.codigo_causa_defecto] = null; return; }
+      const origen = origenPorCodigo.get(oc.codigo_origen) ?? null;
+      const atm = origen != null ? atmPorId.get(origen.codigo_area_tipo_motivo) ?? null : null;
+      const motivo = atm != null ? motivoPorAtm[atm.codigo_area_tipo_motivo] ?? "—" : "—";
+      const area = atm != null ? areaPorCodigo.get(atm.codigo_area) ?? null : null;
+      map[c.codigo_causa_defecto] = { oc, origen, atm, motivo, area };
+    });
+    return map;
+  }, [causasDelOrigen, ocPorCodigo, origenPorCodigo, atmPorId, motivoPorAtm, areaPorCodigo]);
+
+  const totalCombinaciones = selectedCausaIds.length + pendingCausas.length;
 
   const canGoNext = useMemo(() => {
     if (currentStep === 1) return selectedOrigenIds.length > 0;
@@ -263,83 +441,49 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
   const handleSave = async () => {
     if (selectedOrigenIds.length === 0 || totalCombinaciones === 0) return;
     setIsSaving(true);
+    const origenId = selectedOrigenIds[0];
+    const oc = ocPorOrigen[origenId];
+    if (!oc) { setIsSaving(false); return; }
+
     try {
-      // Por cada (origen_seleccionado, causa_existente) -> guardar CausaDefecto con codigo_origen_componente = OC del origen
-      // Como causaDefectoService.save usa POST que crea/reemplaza por codigo_origen_componente,
-      // pero actualmente la PK es codigo_causa_defecto, aquí la lógica es:
-      //   - Si la causa existe y aún no tiene codigo_origen_componente, lo seteamos.
-      //   - Si es nueva (pendiente), la creamos con codigo_origen_componente directamente.
-      // Para no perder la causaDefecto original al editar, lo más simple es:
-      //   Para cada causa pendiente, crear una nueva CausaDefecto (codigo_origen_componente = OC del origen).
-      //   Para cada causa existente seleccionada, guardamos la asociación solo si todavía no la tiene.
-
-      // Necesitamos conocer los codigo_origen_componente (pk de OC). Como ya los filtramos arriba,
-      // y solo tenemos origenesDelComponente con OC activos, podemos llamar de nuevo al servicio para mapear.
-
-      // Cargamos el listado completo de OC para mapear origen -> OC.
-      const ocRes = await origenComponenteService.getAll();
-      const ocPorOrigen: Record<number, OrigenComponente> = {};
-      ((ocRes.data || []) as OrigenComponente[]).forEach((oc) => {
-        if (
-          oc.codigo_componente === componente.codigo_componente &&
-          oc.codigo_origen in ocPorOrigen === false
-        ) {
-          ocPorOrigen[oc.codigo_origen] = oc;
-        }
-      });
-
-      let count = 0;
       const usuarioSession =
         (typeof window !== "undefined"
           ? JSON.parse(localStorage.getItem("user") || "{}")?.usuario
           : user?.name) || "admin";
+      const now = formatDateForSQLServer(new Date());
+      const selectedCausaIdsSet = new Set(selectedCausaIds);
 
-      // Causas seleccionadas (existentes)
-      for (const origenId of selectedOrigenIds) {
-        const oc = ocPorOrigen[origenId];
-        if (!oc) continue;
-        for (const causaId of selectedCausaIds) {
-          const c = causasAll.find((x) => x.codigo_causa_defecto === causaId);
-          if (!c) continue;
-          // Si la causa seleccionada ya tiene un codigo_origen_componente y es distinto del que necesitamos,
-          // omite: una causa sólo puede pertenecer a una combinación OC.
-          if (
-            c.codigo_origen_componente != null &&
-            c.codigo_origen_componente !== oc.codigo_origen_componente
-          ) {
-            continue;
-          }
-          await causaDefectoService.save({
-            codigo_causa_defecto: c.codigo_causa_defecto,
-            nombre_causa_defecto: c.nombre_causa_defecto,
-            estado: "A",
-            usuario_modificacion: usuarioSession,
-            fecha_modificacion: formatDateForSQLServer(new Date()),
-            codigo_origen_componente: oc.codigo_origen_componente,
-          });
-          count++;
-        }
+      // 1) SOFT-DELETE: causas del OC actual que fueron desmarcadas
+      const aDesactivar = causasDelOrigen.filter(
+        (c) => !selectedCausaIdsSet.has(c.codigo_causa_defecto)
+      );
+      for (const c of aDesactivar) {
+        await causaDefectoService.save({
+          ...c,
+          estado: "I",
+          usuario_modificacion: usuarioSession,
+          fecha_modificacion: now,
+        });
       }
 
-      // Causas pendientes (nuevas) -> crear una nueva por cada origen seleccionado.
-      // En creación NO se envían usuario_modificacion / fecha_modificacion.
-      for (const origenId of selectedOrigenIds) {
-        const oc = ocPorOrigen[origenId];
-        if (!oc) continue;
-        for (const nueva of pendingCausas) {
-          await causaDefectoService.save({
-            codigo_causa_defecto: 0,
-            nombre_causa_defecto: nueva.nombre_causa_defecto,
-            estado: "A",
-            codigo_origen_componente: oc.codigo_origen_componente,
-          });
-          count++;
-        }
+      let inserts = 0;
+
+      // 2) INSERT de causas nuevas (pendingCausas) para el OC seleccionado
+      for (const nueva of pendingCausas) {
+        await causaDefectoService.save({
+          codigo_causa_defecto: 0,
+          nombre_causa_defecto: nueva.nombre_causa_defecto,
+          estado: "A",
+          codigo_origen_componente: oc.codigo_origen_componente,
+        });
+        inserts++;
       }
 
       toast({
-        title: "Causas asociadas",
-        description: `${count} asociación(es) creada/actualizada(s) en CausaDefecto.`,
+        title: "Causas guardadas",
+        description:
+          `${inserts} nueva(s) creada(s), ` +
+          `${aDesactivar.length} desasociada(s).`,
         variant: "success",
       });
       router.refresh();
@@ -446,15 +590,24 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
                 ) : (
                   <div
                     role="radiogroup"
+                    aria-label="Orígenes del componente"
                     className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
                   >
                     {origenesDelComponente.map((o) => {
                       const isSelected = selectedOrigenIds.includes(o.codigo_origen);
+                      // Resuelve Área y Motivo del origen via ATM
+                      const atm = atmPorId.get(o.codigo_area_tipo_motivo);
+                      const areaNombre = atm
+                        ? (areaPorCodigo.get(atm.codigo_area)?.nombre_area ?? "—")
+                        : "—";
+                      const motivoNombre = atm
+                        ? (motivoPorAtm[atm.codigo_area_tipo_motivo] ?? "—")
+                        : "—";
                       return (
                         <button
                           key={o.codigo_origen}
                           type="button"
-                          role="checkbox"
+                          role="radio"
                           aria-checked={isSelected}
                           onClick={() => toggleOrigen(o.codigo_origen)}
                           className={[
@@ -467,7 +620,7 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
                           ].join(" ")}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="space-y-1 min-w-0">
+                            <div className="space-y-1 min-w-0 flex-1">
                               <p className="font-semibold text-sm leading-tight truncate">
                                 {o.nombre_origen}
                               </p>
@@ -489,6 +642,19 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
                               </Badge>
                             )}
                           </div>
+                          {/* Contexto: Área + Motivo del origen */}
+                          <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+                            <p className="flex items-center gap-1 truncate">
+                              <Building2 className="h-3 w-3 shrink-0 text-primary" />
+                              <span className="font-medium text-foreground/80">Área:</span>
+                              <span className="truncate">{areaNombre}</span>
+                            </p>
+                            <p className="flex items-center gap-1 truncate">
+                              <Tag className="h-3 w-3 shrink-0 text-primary" />
+                              <span className="font-medium text-foreground/80">Motivo:</span>
+                              <span className="truncate">{motivoNombre}</span>
+                            </p>
+                          </div>
                         </button>
                       );
                     })}
@@ -496,13 +662,14 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
                 )}
 
                 <div className="text-xs text-muted-foreground">
-                  {selectedOrigenIds.length} de {origenesDelComponente.length}{" "}
-                  origen(es) seleccionados
+                  {selectedOrigenIds.length === 1
+                    ? `1 origen seleccionado de ${origenesDelComponente.length}`
+                    : `Ninguno seleccionado · elige un origen para continuar`}
                 </div>
               </div>
             )}
 
-            {/* Paso 2: causas existentes + nuevas (híbrido) */}
+            {/* Paso 2: causas del origen seleccionado (desde endpoint específico) */}
             {currentStep === 2 && (
               <div className="space-y-6">
                 <div>
@@ -511,8 +678,8 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
                     Causas de defecto
                   </h2>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Selecciona causas existentes o crea nuevas. Se asignarán a
-                    cada origen elegido.
+                    Causas asociadas al origen seleccionado. Desmarca las que
+                    quieras desasociar o crea nuevas.
                   </p>
                 </div>
 
@@ -532,7 +699,11 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Existentes
                   </h3>
-                  {causasFiltradas.length === 0 ? (
+                  {isLoadingCausas ? (
+                    <p className="text-sm text-muted-foreground text-center py-6">
+                      Cargando causas del origen...
+                    </p>
+                  ) : causasFiltradas.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">
                       No hay causas activas registradas.
                     </p>
@@ -543,76 +714,186 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
                           c.codigo_causa_defecto
                         );
                         const yaLink = c.codigo_origen_componente != null;
-                        return (
-                          <button
-                            key={c.codigo_causa_defecto}
-                            type="button"
-                            role="checkbox"
-                            aria-checked={isSelected}
-                            disabled={yaLink}
-                            onClick={() => toggleCausa(c.codigo_causa_defecto)}
-                            className={[
-                              "text-left rounded-md border p-4 transition-all",
-                              yaLink
-                                ? "opacity-60 cursor-not-allowed"
-                                : "hover:border-primary/50 hover:shadow-sm cursor-pointer",
-                              "focus:outline-none focus:ring-2 focus:ring-primary/40",
-                              isSelected
-                                ? "border-primary bg-primary/5 ring-1 ring-primary"
-                                : "bg-card",
-                            ].join(" ")}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="space-y-1 min-w-0">
-                                <p className="font-semibold text-sm leading-tight truncate">
-                                  {c.nombre_causa_defecto}
-                                </p>
-                                <p className="text-xs text-muted-foreground font-mono">
-                                  #{c.codigo_causa_defecto}
-                                </p>
-                              </div>
+                        /*
+                          Cuando la causa ya está linkeada (yaLink=true), el
+                          contenedor se renderiza como <div> en lugar de
+                          <button> para evitar HTML inválido ("button in
+                          button") que hacía que los botones Pencil/Unlink
+                          no recibieran clicks en algunos navegadores.
+                        */
+                        const containerClass = [
+                          "text-left rounded-md border p-4 transition-all",
+                          yaLink
+                            ? "opacity-80"
+                            : "hover:border-primary/50 hover:shadow-sm cursor-pointer",
+                          "focus-within:outline-none focus-within:ring-2 focus-within:ring-primary/40",
+                          isSelected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "bg-card",
+                        ].join(" ");
+                        const inner = (
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-1 min-w-0 flex-1">
+                              <p className="font-semibold text-sm leading-tight truncate">
+                                {c.nombre_causa_defecto}
+                              </p>
+                              <p className="text-xs text-muted-foreground font-mono">
+                                #{c.codigo_causa_defecto}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
                               {isSelected ? (
-                                <Badge className="bg-primary text-primary-foreground shrink-0">
+                                <Badge className="bg-primary text-primary-foreground">
                                   <Check className="h-3 w-3 mr-1" />
                                   Elegida
                                 </Badge>
-                              ) : yaLink ? (
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <Button
+                              ) : null}
+                            {/*
+                              Acciones para causas ya asociadas: Editar,
+                              Desasociar y Eliminar en menú DropdownMenu
+                              (un solo ícono "⋮"). Aparece SIEMPRE que la
+                              causa esté linkeada, sin importar si está
+                              preseleccionada, para que el usuario nunca
+                              pierda acceso a estas acciones.
+                              Mismo patrón que origen-componente-stepper;
+                              evita HTML inválido (`<button>` dentro de
+                              `<div>` interactivo) que era la causa raíz
+                              por la que los clicks no llegaban antes.
+                            */}
+                            {yaLink ? (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
                                     type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0 text-amber-600 hover:text-amber-700"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleOpenEdit(c);
-                                    }}
+                                    aria-label="Acciones de la causa"
+                                    title="Acciones"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
                                   >
-                                    <Pencil className="h-3 w-3" />
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleUnlink(c);
-                                    }}
-                                  >
-                                    <Unlink className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              ) : (
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-48">
+                                  <DropdownMenuItem onClick={() => handleOpenEdit(c)}>
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Editar texto
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleUnlink(c)}>
+                                    <Unlink className="mr-2 h-4 w-4" />
+                                    Desasociar
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            ) : (
                                 <Badge
                                   variant="secondary"
-                                  className="px-2 py-0.5 bg-slate-100 text-slate-600 shrink-0"
+                                  className="px-2 py-0.5 bg-slate-100 text-slate-600"
                                 >
                                   Elegir
                                 </Badge>
                               )}
                             </div>
-                          </button>
+                          </div>
+                        );
+
+                        // Bloque de contexto (Área, Motivo, Origen, OC).
+                        // Solo se muestra cuando la causa está linkeada a un
+                        // OC del componente, o cuando el origen seleccionado
+                        // tiene match con uno de los del componente.
+                        const contexto = contextoCausa[c.codigo_causa_defecto];
+                        const contextoBlock =
+                          contexto && contexto.oc ? (
+                            <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+                              {contexto.area && (
+                                <p className="flex items-center gap-1 truncate">
+                                  <Building2 className="h-3 w-3 shrink-0 text-primary" />
+                                  <span className="font-medium text-foreground/80">
+                                    Área:
+                                  </span>
+                                  <span className="truncate">
+                                    {contexto.area.nombre_area}
+                                  </span>
+                                </p>
+                              )}
+                              {contexto.motivo && contexto.motivo !== "—" && (
+                                <p className="flex items-center gap-1 truncate">
+                                  <Tag className="h-3 w-3 shrink-0 text-primary" />
+                                  <span className="font-medium text-foreground/80">
+                                    Motivo:
+                                  </span>
+                                  <span className="truncate">{contexto.motivo}</span>
+                                </p>
+                              )}
+                              {contexto.origen && (
+                                <p className="flex items-center gap-1 truncate">
+                                  <Boxes className="h-3 w-3 shrink-0 text-primary" />
+                                  <span className="font-medium text-foreground/80">
+                                    Origen:
+                                  </span>
+                                  <span className="truncate">
+                                    {contexto.origen.nombre_origen}
+                                  </span>
+                                </p>
+                              )}
+                              <p className="flex items-center gap-1 truncate">
+                                <Hash className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                <span className="font-mono text-[10px]">
+                                  OC #{contexto.oc.codigo_origen_componente}
+                                  {" · ATM #"}
+                                  {contexto.atm?.codigo_area_tipo_motivo ?? "—"}
+                                </span>
+                              </p>
+                            </div>
+                          ) : (
+                            // Causa sin asociación previa: mostrar el
+                            // nombre del componente para que el usuario
+                            // sepa que está creando una asociación nueva
+                            // contra los orígenes que seleccione en el
+                            // paso 1.
+                            <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+                              <p className="flex items-center gap-1 truncate">
+                                <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                <span className="font-medium text-foreground/80">
+                                  Área:
+                                </span>
+                                <span className="truncate">
+                                  {origenesDelComponente.find(
+                                    (o) =>
+                                      selectedOrigenIds.includes(o.codigo_origen)
+                                  )?.nombre_origen
+                                    ? "Hereda de origen seleccionado"
+                                    : "Sin área"}
+                                </span>
+                              </p>
+                            </div>
+                          );
+                        // Causa disponible: contenedor interactivo (button).
+                        if (!yaLink) {
+                          return (
+                            <button
+                              key={c.codigo_causa_defecto}
+                              type="button"
+                              role="checkbox"
+                              aria-checked={isSelected}
+                              onClick={() => toggleCausa(c.codigo_causa_defecto)}
+                              className={containerClass}
+                            >
+                              {inner}
+                              {contextoBlock}
+                            </button>
+                          );
+                        }
+                        // Causa ya linkeada: contenedor no interactivo (div).
+                        // Los clicks a editar/desasociar se hacen en los
+                        // botones explícitos dentro de inner.
+                        return (
+                          <div
+                            key={c.codigo_causa_defecto}
+                            className={containerClass}
+                            aria-label={`Causa ${c.nombre_causa_defecto} ya asociada`}
+                          >
+                            {inner}
+                            {contextoBlock}
+                          </div>
                         );
                       })}
                     </div>
@@ -721,7 +1002,7 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
                 </div>
 
                 <div className="space-y-3">
-                  {causasAll
+                  {causasDelOrigen
                     .filter((c) => selectedCausaIds.includes(c.codigo_causa_defecto))
                     .map((c) => (
                       <div
@@ -808,6 +1089,7 @@ export default function CausaDefectoStepper({ componente, onClose }: Props) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
     </>
   );
 }

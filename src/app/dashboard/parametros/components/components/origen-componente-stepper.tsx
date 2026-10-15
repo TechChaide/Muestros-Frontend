@@ -12,25 +12,13 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Link2Off,
-  MoreHorizontal,
   Save,
   Search,
   Tag,
+  Building2,
 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import type {
+  Area,
   AreaTipoMotivo,
   Componente,
   Origen,
@@ -41,6 +29,7 @@ import { origenService } from "@/services/seguridades/origen.service";
 import { origenComponenteService } from "@/services/seguridades/origenComponente.service";
 import { areaTipoMotivoService } from "@/services/seguridades/areaTipoMotivo.service";
 import { tipoMotivoService } from "@/services/seguridades/tipoMotivo.service";
+import { areaService } from "@/services/seguridades/area.service";
 
 const formatDateForSQLServer = (date: Date): string => {
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -72,6 +61,7 @@ export default function OrigenComponenteStepper({ componente, onClose }: Props) 
   const [origenes, setOrigenes] = useState<Origen[]>([]);
   const [atmList, setAtmList] = useState<AreaTipoMotivo[]>([]);
   const [tipoMotivos, setTipoMotivos] = useState<TipoMotivo[]>([]);
+  const [areasList, setAreasList] = useState<Area[]>([]);
   const [existingAsoc, setExistingAsoc] = useState<OrigenComponente[]>([]);
   const [selectedOrigenIds, setSelectedOrigenIds] = useState<number[]>([]);
   const [filter, setFilter] = useState("");
@@ -84,11 +74,12 @@ export default function OrigenComponenteStepper({ componente, onClose }: Props) 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [origenesRes, atmRes, motivosRes, asocRes] = await Promise.all([
+      const [origenesRes, atmRes, motivosRes, asocRes, areasRes] = await Promise.all([
         origenService.getAll(),
         areaTipoMotivoService.getAll(),
         tipoMotivoService.getAll(),
         origenComponenteService.getAll(),
+        areaService.getAll(),
       ]);
 
       const origenesActivos = (origenesRes.data || []).filter(
@@ -100,6 +91,9 @@ export default function OrigenComponenteStepper({ componente, onClose }: Props) 
         ((atmRes.data || []) as AreaTipoMotivo[]).filter((a) => a.estado === "A")
       );
       setTipoMotivos((motivosRes.data || []).filter((m) => m.estado === "A"));
+      setAreasList(
+        ((areasRes.data || []) as Area[]).filter((a) => a.estado === "A")
+      );
 
       const yaAsociados = ((asocRes.data || []) as OrigenComponente[]).filter(
         (oc) =>
@@ -107,7 +101,12 @@ export default function OrigenComponenteStepper({ componente, onClose }: Props) 
           oc.estado === "A"
       );
       setExistingAsoc(yaAsociados);
-      setSelectedOrigenIds(yaAsociados.map((a) => a.codigo_origen));
+      // NO pre-seleccionamos por defecto. La selección la hace el usuario
+      // manualmente, y el render consulta `existingAsoc` para saber qué
+      // cards ya tienen una asociación OrigenComponente viva. Cada
+      // asociación está atada a su ATM, así que no mezclamos orígenes
+      // preseleccionados entre grupos.
+      setSelectedOrigenIds([]);
     } catch (error) {
       const msg =
         error instanceof Error ? error.message : "No se pudo cargar los datos.";
@@ -131,6 +130,33 @@ export default function OrigenComponenteStepper({ componente, onClose }: Props) 
     return map;
   }, [atmList, tipoMotivos]);
 
+  // Mapas de resolución rápida para la agrupación por Área.
+  const atmPorId = useMemo(() => {
+    const m = new Map<number, AreaTipoMotivo>();
+    atmList.forEach((a) => m.set(a.codigo_area_tipo_motivo, a));
+    return m;
+  }, [atmList]);
+
+  const areaPorCodigo = useMemo(() => {
+    const m = new Map<number, Area>();
+    areasList.forEach((a) => m.set(a.codigo_area, a));
+    return m;
+  }, [areasList]);
+
+  /**
+   * Dada la codigo_area_tipo_motivo de un Origen, devuelve el nombre del Área.
+   * Si el origen quedó huérfano (sin ATM o sin área activa), lo agrupamos bajo
+   * "Sin área" en lugar de romper la UI.
+   */
+  const areaPorAtm = useMemo(() => {
+    const m: Record<number, string> = {};
+    atmList.forEach((a) => {
+      const area = areaPorCodigo.get(a.codigo_area);
+      m[a.codigo_area_tipo_motivo] = area?.nombre_area || "Sin área";
+    });
+    return m;
+  }, [atmList, areaPorCodigo]);
+
   const origenesFiltrados = useMemo(() => {
     if (!filter.trim()) return origenes;
     const f = filter.toLowerCase();
@@ -139,9 +165,83 @@ export default function OrigenComponenteStepper({ componente, onClose }: Props) 
         o.nombre_origen.toLowerCase().includes(f) ||
         (motivoPorAtm[o.codigo_area_tipo_motivo] || "")
           .toLowerCase()
+          .includes(f) ||
+        (areaPorAtm[o.codigo_area_tipo_motivo] || "")
+          .toLowerCase()
           .includes(f)
     );
-  }, [origenes, filter, motivoPorAtm]);
+  }, [origenes, filter, motivoPorAtm, areaPorAtm]);
+
+  /**
+   * Agrupa los orígenes filtrados por Área y, dentro de cada área, por
+   * Motivo (resuelto vía ATM → TipoMotivo).
+   *
+   * Estructura:
+   *   [{
+   *     nombre_area, codigo_area?,
+   *     origenes: Origen[],          // flat (badge del header del área)
+   *     porMotivo: [{ nombre_motivo, origenes: Origen[] }]
+   *   }]
+   *
+   *  - Si el área no existe en `areasList`, se agrupa bajo "Sin área".
+   *  - Si el motivo no se resuelve, se agrupa bajo "Sin motivo".
+   *  - Orden: área alfabética; motivos alfabéticos dentro del área;
+   *    orígenes en el orden original del backend.
+   */
+  const origenesAgrupados = useMemo(() => {
+    type MotivoGrupo = {
+      nombre_motivo: string;
+      origenes: Origen[];
+    };
+    type Grupo = {
+      nombre_area: string;
+      codigo_area?: number;
+      origenes: Origen[];
+      porMotivo: MotivoGrupo[];
+    };
+    const byKey = new Map<string, Grupo & { _motivos: Map<string, MotivoGrupo> }>();
+    for (const o of origenesFiltrados) {
+      const nombre = areaPorAtm[o.codigo_area_tipo_motivo] || "Sin área";
+      const atm = atmPorId.get(o.codigo_area_tipo_motivo);
+      const codigoArea = atm?.codigo_area;
+      const key = `${nombre}__${codigoArea ?? "none"}`;
+      let grupo = byKey.get(key);
+      if (!grupo) {
+        grupo = {
+          nombre_area: nombre,
+          codigo_area: codigoArea,
+          origenes: [],
+          porMotivo: [],
+          _motivos: new Map(),
+        };
+        byKey.set(key, grupo);
+      }
+      grupo.origenes.push(o);
+
+      const nombreMotivo =
+        motivoPorAtm[o.codigo_area_tipo_motivo] || "Sin motivo";
+      let motivoGrupo = grupo._motivos.get(nombreMotivo);
+      if (!motivoGrupo) {
+        motivoGrupo = { nombre_motivo: nombreMotivo, origenes: [] };
+        grupo._motivos.set(nombreMotivo, motivoGrupo);
+      }
+      motivoGrupo.origenes.push(o);
+    }
+    return Array.from(byKey.values())
+      .map(({ _motivos, ...grupo }) => ({
+        ...grupo,
+        porMotivo: Array.from(_motivos.values()).sort((a, b) =>
+          a.nombre_motivo.localeCompare(b.nombre_motivo, "es", {
+            sensitivity: "base",
+          })
+        ),
+      }))
+      .sort((a, b) =>
+        a.nombre_area.localeCompare(b.nombre_area, "es", {
+          sensitivity: "base",
+        })
+      );
+  }, [origenesFiltrados, areaPorAtm, atmPorId, motivoPorAtm]);
 
   const selectedOrigenes = useMemo(
     () => origenes.filter((o) => selectedOrigenIds.includes(o.codigo_origen)),
@@ -375,112 +475,13 @@ export default function OrigenComponenteStepper({ componente, onClose }: Props) 
                   </div>
                 </div>
 
-                {/* Cards de orígenes ya asociados (look desactivado, con menú de acciones) */}
-                {existingAsoc.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Ya asociados a este componente
-                      </h3>
-                      <Badge variant="secondary" className="bg-slate-200 text-slate-700">
-                        {existingAsoc.length}
-                      </Badge>
-                    </div>
-                    <div
-                      role="list"
-                      aria-label="Orígenes ya asociados al componente"
-                      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
-                    >
-                      {existingAsoc
-                        .map((a) => {
-                          const o = origenes.find(
-                            (x) => x.codigo_origen === a.codigo_origen
-                          );
-                          if (!o) return null;
-                          const motivoTxt =
-                            motivoPorAtm[o.codigo_area_tipo_motivo] || "Sin motivo";
-                          return { oc: a, o, motivoTxt };
-                        })
-                        .filter(
-                          (x): x is { oc: OrigenComponente; o: Origen; motivoTxt: string } =>
-                            x !== null
-                        )
-                        .map(({ oc, o, motivoTxt }) => {
-                          const isMarked = selectedOrigenIds.includes(o.codigo_origen);
-                          return (
-                            <div
-                              key={oc.codigo_origen_componente}
-                              role="listitem"
-                              className={[
-                                "rounded-md border p-4 transition-all",
-                                isMarked
-                                  ? "border-green-200 bg-green-50/40"
-                                  : "border-slate-200 bg-slate-50/60 opacity-70",
-                              ].join(" ")}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="space-y-1 min-w-0">
-                                  <p className="font-semibold text-sm leading-tight truncate">
-                                    {o.nombre_origen}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground font-mono">
-                                    OC #{oc.codigo_origen_componente} · Origen #{o.codigo_origen}
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  {isMarked ? (
-                                    <Badge className="bg-green-600 text-white">
-                                      Activo
-                                    </Badge>
-                                  ) : (
-                                    <Badge
-                                      variant="secondary"
-                                      className="bg-slate-200 text-slate-600"
-                                    >
-                                      Desactivado
-                                    </Badge>
-                                  )}
-                                  <DropdownMenu>
-                                    <TooltipProvider delayDuration={300}>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <DropdownMenuTrigger asChild>
-                                            <button
-                                              type="button"
-                                              aria-label="Acciones del origen asociado"
-                                              className="h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                                            >
-                                              <MoreHorizontal className="h-4 w-4" />
-                                            </button>
-                                          </DropdownMenuTrigger>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="left">
-                                          Acciones
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    </TooltipProvider>
-                                    <DropdownMenuContent align="end" className="w-48">
-                                      <DropdownMenuItem
-                                        onClick={() => handleUnlinkExisting(oc)}
-                                        className="text-red-600 focus:text-red-600"
-                                      >
-                                        <Link2Off className="mr-2 h-4 w-4" />
-                                        Desasociar origen
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                </div>
-                              </div>
-                              <div className="mt-2 text-xs text-muted-foreground truncate">
-                                <Tag className="inline h-3 w-3 mr-1" />
-                                {motivoTxt}
-                              </div>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  </div>
-                )}
+                {/* Cards de orígenes ya asociados (look desactivado, con menú de acciones).
+                    Se renderizan DENTRO de cada grupo por área/motivo para que el
+                    usuario vea en qué contexto quedó cada asociación previa. La
+                    preselección por defecto ya se cargó en `selectedOrigenIds`
+                    a partir de `existingAsoc`, así que las cards marcadas con
+                    "Elegido" en cada grupo representan exactamente los orígenes
+                    que ya están asociados al componente en ese ATM concreto. */}
 
                 {/* Buscador */}
                 <div className="relative">
@@ -502,58 +503,177 @@ export default function OrigenComponenteStepper({ componente, onClose }: Props) 
                     No hay orígenes activos registrados.
                   </div>
                 ) : (
-                  <div
-                    role="radiogroup"
-                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
-                  >
-                    {origenesFiltrados.map((o) => {
-                      const isSelected = selectedOrigenIds.includes(o.codigo_origen);
-                      const motivoTxt =
-                        motivoPorAtm[o.codigo_area_tipo_motivo] || "Sin motivo";
+                  /*
+                    Render agrupado por Área → Motivo. Cada card de área
+                    contiene subsecciones por motivo para que la asignación
+                    sea más intuitiva cuando un área tiene varios motivos.
+                  */
+                  <div className="space-y-6">
+                    {origenesAgrupados.map((grupo) => {
+                      const area =
+                        grupo.codigo_area != null
+                          ? areaPorCodigo.get(grupo.codigo_area)
+                          : undefined;
                       return (
-                        <button
-                          key={o.codigo_origen}
-                          type="button"
-                          role="checkbox"
-                          aria-checked={isSelected}
-                          onClick={() => toggleOrigen(o.codigo_origen)}
-                          className={[
-                            "text-left rounded-md border p-4 transition-all",
-                            "hover:border-primary/50 hover:shadow-sm",
-                            "focus:outline-none focus:ring-2 focus:ring-primary/40",
-                            isSelected
-                              ? "border-primary bg-primary/5 ring-1 ring-primary"
-                              : "bg-card",
-                          ].join(" ")}
+                        <section
+                          key={`${grupo.nombre_area}-${grupo.codigo_area ?? "none"}`}
+                          className="rounded-lg border bg-card/40"
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="space-y-1 min-w-0">
-                              <p className="font-semibold text-sm leading-tight truncate">
-                                {o.nombre_origen}
-                              </p>
-                              <p className="text-xs text-muted-foreground font-mono">
-                                Origen #{o.codigo_origen}
-                              </p>
-                            </div>
-                            {isSelected ? (
-                              <Badge className="bg-primary text-primary-foreground shrink-0">
-                                <Check className="h-3 w-3 mr-1" />
-                                Elegido
-                              </Badge>
-                            ) : (
-                              <Badge
-                                variant="secondary"
-                                className="px-2 py-0.5 bg-slate-100 text-slate-600 shrink-0"
+                          <header className="flex items-center gap-2 px-3 py-2 border-b bg-muted/40 rounded-t-lg">
+                            <Building2 className="h-4 w-4 text-primary shrink-0" />
+                            <div className="min-w-0">
+                              <p
+                                className="text-sm font-semibold truncate"
+                                title={grupo.nombre_area}
                               >
-                                Elegir
-                              </Badge>
-                            )}
+                                {grupo.nombre_area}
+                              </p>
+                              {area?.regional && (
+                                <p className="text-[11px] text-muted-foreground truncate">
+                                  {area.regional}
+                                  {area.respCtrlProd
+                                    ? ` · Resp.: ${area.respCtrlProd}`
+                                    : ""}
+                                </p>
+                              )}
+                            </div>
+                            <Badge
+                              variant="secondary"
+                              className="ml-auto bg-slate-200 text-slate-700"
+                            >
+                              {grupo.origenes.length}{" "}
+                              {grupo.origenes.length === 1
+                                ? "origen"
+                                : "orígenes"}
+                            </Badge>
+                          </header>
+
+                          <div className="space-y-4 p-3">
+                            {grupo.porMotivo.map((motivoGrupo) => (
+                              <div
+                                key={`${grupo.nombre_area}-${grupo.codigo_area ?? "none"}-${motivoGrupo.nombre_motivo}`}
+                                className="space-y-2"
+                              >
+                                <div className="flex items-center gap-2 px-1">
+                                  <Tag className="h-3.5 w-3.5 text-primary shrink-0" />
+                                  <p
+                                    className="text-xs font-semibold uppercase tracking-wide text-muted-foreground truncate"
+                                    title={motivoGrupo.nombre_motivo}
+                                  >
+                                    {motivoGrupo.nombre_motivo}
+                                  </p>
+                                  <Badge
+                                    variant="outline"
+                                    className="ml-auto text-[10px] px-1.5 py-0 h-5 text-muted-foreground"
+                                  >
+                                    {motivoGrupo.origenes.length}
+                                  </Badge>
+                                </div>
+
+                                <div
+                                  role="group"
+                                  aria-label={`Orígenes del motivo ${motivoGrupo.nombre_motivo} en ${grupo.nombre_area}`}
+                                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-w-0"
+                                >
+                                  {motivoGrupo.origenes.map((o) => {
+                                    const isSelected =
+                                      selectedOrigenIds.includes(
+                                        o.codigo_origen
+                                      );
+                                    const asocPrevia = existingAsoc.find(
+                                      (ea) =>
+                                        ea.codigo_origen === o.codigo_origen
+                                    );
+                                    const isAsociado =
+                                      !!asocPrevia && asocPrevia.estado === "A";
+                                    return (
+                                      <button
+                                        key={`${o.codigo_origen}-${o.codigo_area_tipo_motivo}`}
+                                        type="button"
+                                        role="checkbox"
+                                        aria-checked={isSelected}
+                                        onClick={() =>
+                                          toggleOrigen(o.codigo_origen)
+                                        }
+                                        className={[
+                                          "text-left rounded-md border p-4 transition-all",
+                                          "hover:border-primary/50 hover:shadow-sm",
+                                          "focus:outline-none focus:ring-2 focus:ring-primary/40",
+                                          isSelected
+                                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                                            : "bg-card",
+                                        ].join(" ")}
+                                      >
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="space-y-1 min-w-0">
+                                            <p className="font-semibold text-sm leading-tight truncate">
+                                              {o.nombre_origen}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground font-mono">
+                                              Origen #{o.codigo_origen}
+                                            </p>
+                                          </div>
+                                          {isSelected ? (
+                                            <Badge className="bg-primary text-primary-foreground shrink-0">
+                                              <Check className="h-3 w-3 mr-1" />
+                                              Elegido
+                                            </Badge>
+                                          ) : isAsociado ? (
+                                            <Badge
+                                              variant="secondary"
+                                              className="bg-green-100 text-green-700 border-green-200 shrink-0"
+                                            >
+                                              Asociado
+                                            </Badge>
+                                          ) : (
+                                            <Badge
+                                              variant="secondary"
+                                              className="px-2 py-0.5 bg-slate-100 text-slate-600 shrink-0"
+                                            >
+                                              Elegir
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+                                          <p className="flex items-center gap-1 truncate">
+                                            <Building2 className="h-3 w-3 shrink-0 text-primary" />
+                                            <span className="font-medium text-foreground/80">
+                                              Área:
+                                            </span>
+                                            <span className="truncate">
+                                              {grupo.nombre_area}
+                                            </span>
+                                          </p>
+                                          <p className="flex items-center gap-1 truncate">
+                                            <Tag className="h-3 w-3 shrink-0 text-primary" />
+                                            <span className="font-medium text-foreground/80">
+                                              Motivo:
+                                            </span>
+                                            <span className="truncate">
+                                              {motivoGrupo.nombre_motivo}
+                                            </span>
+                                          </p>
+                                          {asocPrevia && (
+                                            <p className="flex items-center gap-1 truncate">
+                                              <span className="font-mono text-[10px] text-muted-foreground">
+                                                OC #
+                                                {
+                                                  asocPrevia.codigo_origen_componente
+                                                }
+                                                {" · ATM #"}
+                                                {o.codigo_area_tipo_motivo}
+                                              </span>
+                                            </p>
+                                          )}
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                          <div className="mt-2 text-xs text-muted-foreground truncate">
-                            <Tag className="inline h-3 w-3 mr-1" />
-                            {motivoTxt}
-                          </div>
-                        </button>
+                        </section>
                       );
                     })}
                   </div>
@@ -561,7 +681,8 @@ export default function OrigenComponenteStepper({ componente, onClose }: Props) 
 
                 <div className="text-xs text-muted-foreground">
                   {selectedOrigenIds.length} origen(es) seleccionado(s) de{" "}
-                  {origenes.length} disponibles
+                  {origenes.length} disponibles · {origenesAgrupados.length}{" "}
+                  {origenesAgrupados.length === 1 ? "área" : "áreas"}
                 </div>
               </div>
             )}

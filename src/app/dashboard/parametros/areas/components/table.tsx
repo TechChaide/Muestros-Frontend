@@ -16,11 +16,22 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Edit, UserPlus, Link, Tags } from 'lucide-react';
+import { MoreHorizontal, Edit, UserPlus, Trash2, GitBranch, Tag } from 'lucide-react';
 import type { Area } from '@/types/interfaces';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useState, useMemo } from 'react';
+import Link from 'next/link';
+
+// Helper: separa responsables por ',', 'o' o '&'.
+// Se declara también aquí para no acoplarse al del formulario.
+function splitResponsables(value: string | null | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(/\s*,\s*|\s+[oO]\s+|\s*&\s*/g)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 const PAGE_SIZE_OPTIONS = [10, 15, 20, 50];
 
 // Mapeo de regional para mostrar en la tabla
@@ -34,11 +45,11 @@ interface AreasTableProps {
   isLoading: boolean;
   onEdit: (record: Area) => void;
   onAddNew: () => void;
-  onAssociateOrigins: (record: Area) => void;
+  onDelete: (record: Area) => void;
   onAssociateMotivos: (record: Area) => void;
 }
 
-export default function AreasTable({ records, isLoading, onEdit, onAddNew, onAssociateOrigins, onAssociateMotivos }: AreasTableProps) {
+export default function AreasTable({ records, isLoading, onEdit, onAddNew, onDelete, onAssociateMotivos }: AreasTableProps) {
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(PAGE_SIZE_OPTIONS[0]);
   const [filter, setFilter] = useState("");
@@ -70,6 +81,7 @@ export default function AreasTable({ records, isLoading, onEdit, onAddNew, onAss
             <TableCell><Skeleton className="h-4 w-40" /></TableCell>
             <TableCell><Skeleton className="h-4 w-40" /></TableCell>
             <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+            <TableCell><Skeleton className="h-4 w-32" /></TableCell>
             <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
             <TableCell className="text-right"><Skeleton className="h-8 w-8" /></TableCell>
         </TableRow>
@@ -83,10 +95,18 @@ export default function AreasTable({ records, isLoading, onEdit, onAddNew, onAss
             <CardTitle>Listado de Áreas</CardTitle>
             <CardDescription>Áreas registradas en el sistema.</CardDescription>
         </div>
-        <Button onClick={onAddNew}>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/dashboard/parametros/flujo" className="inline-flex items-center gap-1">
+              <GitBranch className="h-4 w-4" />
+              Flujo operativo
+            </Link>
+          </Button>
+          <Button onClick={onAddNew}>
             <UserPlus className="mr-2 h-4 w-4" />
             Añadir Área
-        </Button>
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {/* Input de filtrado */}
@@ -110,6 +130,7 @@ export default function AreasTable({ records, isLoading, onEdit, onAddNew, onAss
                     <TableHead>Nombre del Área</TableHead>
                     <TableHead>Ficha Social</TableHead>
                     <TableHead>Regional</TableHead>
+                    <TableHead>Resp. Ctrl. Prod.</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
@@ -121,6 +142,27 @@ export default function AreasTable({ records, isLoading, onEdit, onAddNew, onAss
                     <TableCell>{record.nombre_area}</TableCell>
                     <TableCell>{record.nombre_ficha_social}</TableCell>
                     <TableCell>{regionalMap[record.regional] || record.regional}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        const responsables = splitResponsables(record.respCtrlProd);
+                        if (responsables.length === 0) {
+                          return <span className="text-muted-foreground">—</span>;
+                        }
+                        return (
+                          <div className="flex flex-wrap gap-1">
+                            {responsables.map((r, i) => (
+                              <Badge
+                                key={`${record.codigo_area}-resp-${i}`}
+                                variant="secondary"
+                                className="font-normal"
+                              >
+                                {r}
+                              </Badge>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
                     <TableCell>
                         <Badge variant={record.estado === 'A' ? 'default' : 'destructive'} className={record.estado === 'A' ? 'bg-green-600' : ''}>
                          {record.estado === 'A' ? 'Activo' : 'Inactivo'}
@@ -140,12 +182,15 @@ export default function AreasTable({ records, isLoading, onEdit, onAddNew, onAss
                                 Editar
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => onAssociateMotivos(record)}>
-                                <Tags className="mr-2 h-4 w-4" />
-                                Asociar Tipos de Motivo
+                                <Tag className="mr-2 h-4 w-4" />
+                                Asociar motivos
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onAssociateOrigins(record)}>
-                                <Link className="mr-2 h-4 w-4" />
-                                Asociar Orígenes
+                            <DropdownMenuItem
+                                onClick={() => onDelete(record)}
+                                className="text-red-600 focus:text-red-600"
+                            >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Eliminar
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                         </DropdownMenu>
@@ -154,7 +199,7 @@ export default function AreasTable({ records, isLoading, onEdit, onAddNew, onAss
                 ))}
                  {!isLoading && paginatedRecords.length === 0 && (
                     <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center">
+                        <TableCell colSpan={7} className="h-24 text-center">
                             No se encontraron áreas.
                         </TableCell>
                     </TableRow>

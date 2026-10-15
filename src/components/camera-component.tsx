@@ -27,6 +27,11 @@ export function CameraComponent() {
   const [counter, setCounter] = React.useState(3);
   const [videoReady, setVideoReady] = React.useState(false);
   const [validationResult, setValidationResult] = React.useState<any>(null);
+  // Espejamos el video SOLO si la cámara activa es la frontal. Si la
+  // cámara es la trasera, no espejamos (espejar la trasera invierte el
+  // movimiento: moverte a la izquierda hace que la imagen vaya a la
+  // derecha).
+  const [isFrontCamera, setIsFrontCamera] = React.useState(true);
   const { toast } = useToast();
 
   // Calcular progreso para el spinner circular exterior
@@ -46,6 +51,20 @@ export function CameraComponent() {
               .then((stream) => {
                 if (videoRef.current) {
                   videoRef.current.srcObject = stream;
+                  // Detectamos si el stream activo es la cámara frontal para
+                  // espejar el video solo en ese caso. Si es trasera, NO
+                  // espejamos (espejar la trasera invierte el movimiento y
+                  // confunde al usuario al centrar el rostro / la etiqueta).
+                  const track = stream.getVideoTracks?.()[0];
+                  const settings = track?.getSettings?.() as
+                    | MediaTrackSettings
+                    | undefined;
+                  // `facingMode` puede ser "user" (frontal) o "environment"
+                  // (trasera). Si el navegador no lo reporta, caemos al
+                  // default (frontal).
+                  const facing =
+                    settings?.facingMode ?? "user";
+                  setIsFrontCamera(facing === "user");
                   // Esperar a que el video esté listo
                   videoRef.current.onloadedmetadata = () => {
                     setVideoReady(true);
@@ -281,7 +300,13 @@ export function CameraComponent() {
                       autoPlay
                       playsInline
                       className="absolute top-0 left-0 w-full h-full object-cover rounded"
-                      style={{ zIndex: 1, transform: "scaleX(-1)" }}
+                      style={{
+                        zIndex: 1,
+                        // Espejo solo para cámara frontal. Trasera se ve
+                        // "natural" para que el movimiento del usuario
+                        // coincida con el de la imagen.
+                        transform: isFrontCamera ? "scaleX(-1)" : "none",
+                      }}
                     />
                     
                     {/* Botón cancelar en esquina superior derecha */}
