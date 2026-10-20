@@ -49,7 +49,7 @@ export default function MaterialEtiquetasPage() {
   return (
     <CatalogoTablaPage
       titulo="Materiales de etiquetas"
-      descripcion="Consulta M_MATERIAL, descarga el Excel, carga el archivo modificado y revisa los cambios antes de guardarlos. La columna fila_origen identifica cada registro. Si la dejas vacía, el material se agrega. Ancho, largo y alto son texto. Quitar filas del Excel no las borra de la base."
+      descripcion="Consulta M_MATERIAL, descarga el Excel, carga el archivo modificado y revisa los cambios antes de guardarlos. Cada fila se compara por el código de material. Si el material no existe, se agrega. Si lo quitas del Excel, se elimina. Ancho, largo y alto son texto."
       placeholderBusqueda="Buscar por material, descripción, etiqueta, clase o tipo"
       nombreTabla="Etiquetas.dbo.M_MATERIAL"
       nombreArchivo="material_etiquetas.xlsx"

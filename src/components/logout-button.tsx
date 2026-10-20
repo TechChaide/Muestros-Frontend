@@ -3,6 +3,7 @@
 import React from 'react';
 import { LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { authService } from '@/services/seguridades/auth.service';
 
 interface LogoutButtonProps {
   className?: string;
@@ -12,11 +13,16 @@ interface LogoutButtonProps {
 }
 
 export const LogoutButton: React.FC<LogoutButtonProps> = ({ className, variant = 'gradient', showLabel = true, compact = false }) => {
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await authService.logout();
+    } catch (error) {
+      console.warn('No se pudo cerrar la cookie de sesión:', error);
+    }
     try {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      localStorage.clear(); // Eliminar todas las variables de sesión
+      localStorage.clear();
     } catch (error) {
       console.error('Error al limpiar localStorage:', error);
     }

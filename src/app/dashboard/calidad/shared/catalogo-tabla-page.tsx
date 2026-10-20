@@ -62,7 +62,7 @@ type CatalogoTablaPageProps = {
   tituloFila: (valores: Record<string, string | number | null>) => string;
   tituloAlta: (valores: Record<string, string | number | null>) => string;
   listar: () => Promise<FilaCatalogo[]>;
-  aplicar: (cambios: CambioAplicar[]) => Promise<{ actualizados: number; insertados: number }>;
+  aplicar: (cambios: CambioAplicar[]) => Promise<{ actualizados: number; insertados: number; eliminados: number }>;
 };
 
 export function CatalogoTablaPage({
@@ -141,18 +141,26 @@ export function CatalogoTablaPage({
 
   const altas = cambios.filter((cambio) => cambio.tipo === "insert");
   const modificaciones = cambios.filter((cambio) => cambio.tipo === "update");
+  const bajas = cambios.filter((cambio) => cambio.tipo === "delete");
+  const filasConCambio = useMemo(() => {
+    const ids = new Set<number>();
+    for (const cambio of cambios) {
+      if (cambio.fila_origen != null) ids.add(cambio.fila_origen);
+    }
+    return ids;
+  }, [cambios]);
 
   const filasVisibles = useMemo(() => {
     const texto = filtro.trim().toLowerCase();
     return registros.filter((fila) => {
-      if (soloCambios && !cambiosPorFila.has(fila.fila_origen)) return false;
+      if (soloCambios && !filasConCambio.has(fila.fila_origen)) return false;
       if (!texto) return true;
       const visible = valoresVisibles(columnas, fila, cambiosPorFilaCompletos.get(fila.fila_origen));
       return camposBusqueda.some((campo) =>
         String(visible[campo] ?? "").toLowerCase().includes(texto),
       );
     });
-  }, [registros, filtro, soloCambios, cambiosPorFila, cambiosPorFilaCompletos, camposBusqueda, columnas]);
+  }, [registros, filtro, soloCambios, filasConCambio, cambiosPorFilaCompletos, camposBusqueda, columnas]);
 
   const totalPaginas = Math.max(1, Math.ceil(filasVisibles.length / rowsPerPage));
   const paginaSegura = Math.min(pagina, totalPaginas);
@@ -170,7 +178,13 @@ export function CatalogoTablaPage({
         toast({ title: "Excel", description: leido.errorEncabezado, variant: "destructive" });
         return;
       }
-      const diff = detectarCambios(columnas, registros, leido.filas);
+      const diff = detectarCambios(
+        columnas,
+        registros,
+        leido.filas,
+        campoRequerido,
+        leido.materialesPresentes ?? [],
+      );
       const erroresArchivo = [...leido.errores, ...diff.errores];
       setErrores(erroresArchivo);
       setCambios(diff.cambios);
@@ -266,7 +280,7 @@ export function CatalogoTablaPage({
       setModalAbierto(false);
       toast({
         title: "Catálogo actualizado",
-        description: `${resultado.actualizados} modificados, ${resultado.insertados} nuevos.`,
+        description: `${resultado.actualizados} modificados, ${resultado.insertados} nuevos, ${resultado.eliminados} eliminados.`,
       });
       await consultar();
     } catch (error) {
@@ -341,7 +355,7 @@ export function CatalogoTablaPage({
                 setSoloCambios((actual) => !actual);
                 setPagina(1);
               }}
-              disabled={modificaciones.length === 0}
+              disabled={modificaciones.length === 0 && bajas.length === 0}
             >
               Solo cambios
             </Button>
@@ -353,6 +367,7 @@ export function CatalogoTablaPage({
               <Badge variant="outline">{modificaciones.length} modificados</Badge>
             )}
             {altas.length > 0 && <Badge variant="outline">{altas.length} nuevos</Badge>}
+            {bajas.length > 0 && <Badge variant="outline">{bajas.length} eliminados</Badge>}
           </div>
 
           {errores.length > 0 && (
@@ -372,6 +387,21 @@ export function CatalogoTablaPage({
           )}
         </CardContent>
       </Card>
+
+      {bajas.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Registros eliminados en el archivo</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 text-sm">
+            {bajas.map((baja) => (
+              <p key={`baja-${baja.fila_origen}`}>
+                {tituloFila(baja.valores)}
+              </p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {altas.length > 0 && (
         <Card>
@@ -413,8 +443,9 @@ export function CatalogoTablaPage({
                       const cambio = cambiosPorFilaCompletos.get(fila.fila_origen);
                       const celdas = cambiosPorFila.get(fila.fila_origen);
                       const visible = valoresVisibles(columnas, fila, cambio);
+                      const eliminado = cambio?.tipo === "delete";
                       return (
-                        <TableRow key={fila.fila_origen}>
+                        <TableRow key={fila.fila_origen} className={cn(eliminado && "line-through opacity-60")}>
                           {columnas.map((columna) => {
                             const campo = celdas?.get(columna.key);
                             const texto = formatValor(visible[columna.key]);
@@ -577,7 +608,7 @@ export function CatalogoTablaPage({
           <DialogHeader>
             <DialogTitle>Cambios que se van a guardar</DialogTitle>
             <DialogDescription>
-              {modificaciones.length} modificaciones y {altas.length} registros nuevos en {nombreTabla}.
+              {modificaciones.length} modificaciones, {altas.length} registros nuevos y {bajas.length} eliminaciones en {nombreTabla}.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[50vh] space-y-4 overflow-auto pr-1 text-sm">
@@ -587,15 +618,24 @@ export function CatalogoTablaPage({
                 className="rounded-md border p-3"
               >
                 <p className="font-medium">
-                  {cambio.tipo === "insert" ? "Nuevo" : "Modificación"} · {tituloFila(cambio.valores)}
+                  {cambio.tipo === "insert"
+                    ? "Nuevo"
+                    : cambio.tipo === "delete"
+                      ? "Eliminación"
+                      : "Modificación"}{" "}
+                  · {tituloFila(cambio.valores)}
                 </p>
-                <ul className="mt-2 space-y-1">
-                  {cambio.campos.map((campo) => (
-                    <li key={campo.campo}>
-                      {campo.label}: {formatValor(campo.antes)} → {formatValor(campo.despues)}
-                    </li>
-                  ))}
-                </ul>
+                {cambio.tipo === "delete" ? (
+                  <p className="mt-2">Se eliminará este registro.</p>
+                ) : (
+                  <ul className="mt-2 space-y-1">
+                    {cambio.campos.map((campo) => (
+                      <li key={campo.campo}>
+                        {campo.label}: {formatValor(campo.antes)} → {formatValor(campo.despues)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             ))}
           </div>

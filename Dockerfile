@@ -13,6 +13,11 @@ RUN npm install
 # Copia el resto del código fuente de la aplicación
 COPY . .
 
+# basePath se resuelve en build-time (next.config). Sin esto la app
+# queda en "/" y Traefik (/Procesos-MDDP) responde 404.
+ARG NEXT_PUBLIC_BASE_PATH=/Procesos-MDDP
+ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
+
 # Construye la aplicación Next.js para producción
 # La configuración 'output: standalone' en next.config.js es crucial aquí
 RUN npm run build

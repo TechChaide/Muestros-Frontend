@@ -7,6 +7,7 @@ const API_URL = `${environment.appAPI}/api/muestreo_catalogo_material`;
 export type ResultadoAplicar = {
   actualizados: number;
   insertados: number;
+  eliminados: number;
 };
 
 async function leerError(response: Response, fallback: string): Promise<string> {
@@ -42,6 +43,7 @@ export const muestreoCatalogoMaterialService = {
     return {
       actualizados: Number(body?.data?.actualizados ?? 0),
       insertados: Number(body?.data?.insertados ?? 0),
+      eliminados: Number(body?.data?.eliminados ?? 0),
     };
   },
 };

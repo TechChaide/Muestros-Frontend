@@ -3,8 +3,10 @@
 import { AppShell, AppShellContent, AppShellHeader } from '@/components/layout/app-shell';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, MobileMenuButton, useSidebar } from '@/components/ui/sidebar-new';
 import { ProtectedRoute } from '@/components/protected-route';
+import { SessionKeepAlive } from '@/components/session-keep-alive';
 import Image from 'next/image';
 import Link from 'next/link';
+import { authService } from '@/services/seguridades/auth.service';
 import {
     Collapsible,
     CollapsibleContent,
@@ -469,15 +471,20 @@ function UserPanel() {
     const codigoEmpleado = userInfo?.codigo_empleado || userInfo?.employee_code || userInfo?.codigo || null;
     const avatarText = (displayName || '?').trim().charAt(0).toUpperCase();
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
+        try {
+            await authService.logout();
+        } catch (error) {
+            console.warn('No se pudo cerrar la cookie de sesión:', error);
+        }
         try {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             localStorage.removeItem('perfiles');
             localStorage.removeItem('appsByProfile');
             localStorage.removeItem('aplicacionesDisponibles');
-            localStorage.removeItem('perfilesAutorizados'); // Limpiar datos antiguos si existen
-            localStorage.clear(); // Eliminar todas las variables de sesión
+            localStorage.removeItem('perfilesAutorizados');
+            localStorage.clear();
         } catch (error) {
             console.error('Error al limpiar localStorage:', error);
         }
@@ -650,6 +657,7 @@ export default function DashboardLayout({
 
     return (
         <ProtectedRoute>
+            <SessionKeepAlive />
             <SidebarProvider>
                 <div className="flex h-screen w-full bg-background overflow-hidden">
                     <Sidebar>

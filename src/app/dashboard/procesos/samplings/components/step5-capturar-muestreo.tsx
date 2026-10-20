@@ -74,6 +74,7 @@ import {
   Play,
   Plus,
   QrCode,
+  RotateCcw,
   Save,
   Search,
   Sparkles,
@@ -81,7 +82,6 @@ import {
   Timer,
   Trash2,
   Type,
-  XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDateForSQLServer } from "@/lib/datetime2";
@@ -117,6 +117,8 @@ import { registroCausaDefectoService } from "@/services/seguridades/registroCaus
 import { getOrdenesTrabajadasMultiCaso } from "@/lib/ordenes-multi-caso";
 import { areaTipoMotivoService } from "@/services/seguridades/areaTipoMotivo.service";
 import { serviciosService } from "@/services/seguridades/servicios.service";
+import { serviciosMuestreosService } from "@/services/seguridades/serviciosMuestreos.service";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { samplingRutaParcialStorage, samplingRutaStorage } from "../sampling-storage";
 import type { MuestreoTablaVirtual } from "@/types/interfaces";
 import ScannerPanel from "@/app/dashboard/opciones/formDesigner/components/scanner-panel";
@@ -224,6 +226,8 @@ export interface SelectedOrdenConsulta {
   fila: OrdenesTrabajadas;
 }
 
+export type CronometroEstado = "idle" | "running" | "paused" | "stopped";
+
 interface Step5CapturarMuestreoProps {
   /** Combinación área+motivo (ATM) ya seleccionada. */
   codigoAreaTipoMotivo: number | null;
@@ -258,6 +262,20 @@ interface Step5CapturarMuestreoProps {
   onChange?: (data: CapturaData) => void;
   /** Texto del paso, p. ej. "Paso 6 de 6". */
   stepHint?: string;
+  /**
+   * En multi-sesión: solo la pestaña activa muestra botones flotantes
+   * y notifica onChange al padre.
+   */
+  isActive?: boolean;
+  /** Etiqueta visible de la sesión (p. ej. "Muestreo 2"). */
+  sessionLabel?: string;
+  /** Notifica cambios del cronómetro a la barra de pestañas. */
+  onCronometroChange?: (estado: CronometroEstado) => void;
+  /**
+   * Si se provee, tras guardar con éxito se llama esto en lugar de
+   * recargar toda la página (permite cerrar/reiniciar solo esa sesión).
+   */
+  onGuardadoExitoso?: () => void;
 }
 
 const MESES = [
@@ -394,6 +412,9 @@ function getUserContext(): { regional: string; codigo_empleado: string } {
   }
 }
 
+/** Default estable: `tablaVirtual = []` crea un array nuevo cada render y dispara useEffects en bucle. */
+const EMPTY_TABLA_VIRTUAL: MuestreoTablaVirtual[] = [];
+
 export default function Step5CapturarMuestreo({
   codigoAreaTipoMotivo,
   codigoComponente,
@@ -402,9 +423,13 @@ export default function Step5CapturarMuestreo({
   responsables,
   defaults,
   filaConsolidada,
-  tablaVirtual = [],
+  tablaVirtual = EMPTY_TABLA_VIRTUAL,
   onChange,
   stepHint = "Captura",
+  isActive = true,
+  sessionLabel,
+  onCronometroChange,
+  onGuardadoExitoso,
 }: Step5CapturarMuestreoProps) {
   const { toast } = useToast();
 
@@ -456,6 +481,10 @@ export default function Step5CapturarMuestreo({
   );
   const [isLoadingFuente, setIsLoadingFuente] = useState(false);
   const [errorFuente, setErrorFuente] = useState<string | null>(null);
+  /** Órdenes fabricadas (SP por caso) vs planificadas (PN por responsables). */
+  const [tipoListaOrdenes, setTipoListaOrdenes] = useState<
+    "fabricadas" | "planificadas"
+  >("fabricadas");
 
   // ===== Filtro + paginación de la tabla CONSULTA =====
   /**
@@ -554,16 +583,25 @@ export default function Step5CapturarMuestreo({
    * Estados posibles:
    *   - "idle"    : todavía no se ha iniciado el muestreo (tabla dinámica bloqueada)
    *   - "running" : el inspector está capturando (tabla desbloqueada, cronómetro en vivo)
+   *   - "paused"  : el tiempo está congelado; se puede retomar sin perder lo acumulado
    *   - "stopped" : se detuvo el cronómetro (tabla bloqueada, `tiempo` finalizado)
    *
    * El cronómetro se modela como `inicioMs` (epoch ms cuando arrancó);
    * el `tiempo` final se calcula como `(now - inicioMs) / 1000`.
+   * Al pausar se guarda lo acumulado en `segundosTranscurridos` y al
+   * retomar se recalcula `inicioMs = now - acumulado`.
    */
-  const [cronometro, setCronometro] = useState<
-    "idle" | "running" | "stopped"
-  >("idle");
+  const [cronometro, setCronometro] = useState<CronometroEstado>("idle");
   const [inicioMs, setInicioMs] = useState<number | null>(null);
   const [segundosTranscurridos, setSegundosTranscurridos] = useState(0);
+
+  // Ref: el padre (multi-sesión) pasa callbacks inline; no deben re-disparar el efecto.
+  const onCronometroChangeRef = useRef(onCronometroChange);
+  onCronometroChangeRef.current = onCronometroChange;
+
+  useEffect(() => {
+    onCronometroChangeRef.current?.(cronometro);
+  }, [cronometro]);
 
   /**
    * `inicioRef` es la fuente de verdad consultada por el `setInterval`.
@@ -600,8 +638,8 @@ export default function Step5CapturarMuestreo({
     return () => window.clearInterval(id);
   }, [cronometro, inicioMs]);
 
-  // ===== ¿La tabla dinámica está habilitada? Solo cuando el cronómetro corre. =====
-  const tablaHabilitada = cronometro === "running";
+  // ===== ¿La tabla dinámica está habilitada? En curso o en pausa. =====
+  const tablaHabilitada = cronometro === "running" || cronometro === "paused";
 
   // ===== Metadatos automáticos =====
   const [meta, setMeta] = useState({
@@ -668,6 +706,9 @@ export default function Step5CapturarMuestreo({
    * recién cargado.
    */
   const atmFuenteRef = useRef<AreaTipoMotivo | null>(null);
+  // Deduplicación del escáner: solo se declara aquí para que el toggle
+  // de fabricadas/planificadas también pueda reutilizar el último código.
+  const lastScanRef = useRef<string>("");
   useEffect(() => {
     atmFuenteRef.current = atmFuente;
   }, [atmFuente]);
@@ -718,6 +759,8 @@ export default function Step5CapturarMuestreo({
         );
         setOrdenes(filas);
         setSelectedOrden(null);
+        setFilter("");
+        setPage(1);
       } catch (err) {
         const msg =
           err instanceof Error
@@ -731,6 +774,71 @@ export default function Step5CapturarMuestreo({
       }
     },
     [responsables]
+  );
+
+  const loadOrdenesPlanificadas = useCallback(async () => {
+    if (!responsables || !responsables.trim()) {
+      setErrorFuente(
+        "El área seleccionada no tiene responsables de control de producción (`respCtrlProd`) configurados; no se pueden recuperar las órdenes planificadas."
+      );
+      return;
+    }
+    setIsLoadingFuente(true);
+    setErrorFuente(null);
+    try {
+      const res =
+        await serviciosMuestreosService.getOrdenesPendientesPorResponsables(
+          responsables,
+        );
+      const filas = ((res.data ?? []) as OrdenesTrabajadas[]).filter(
+        (o) => o && o.NUM_ORDEN,
+      );
+      setOrdenes(filas);
+      setSelectedOrden(null);
+      setFilter("");
+      setPage(1);
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "No se pudo cargar las órdenes planificadas.";
+      setErrorFuente(msg);
+      setOrdenes([]);
+      setSelectedOrden(null);
+    } finally {
+      setIsLoadingFuente(false);
+    }
+  }, [responsables]);
+
+  const handleChangeTipoListaOrdenes = useCallback(
+    (valor: string) => {
+      const siguiente =
+        valor === "planificadas" ? "planificadas" : "fabricadas";
+      setTipoListaOrdenes(siguiente);
+      setSelectedOrden(null);
+      setOrdenes([]);
+      setFilter("");
+      setPage(1);
+      if (siguiente === "planificadas") {
+        void loadOrdenesPlanificadas();
+        return;
+      }
+      const atm = atmFuenteRef.current;
+      const tipoFuente = String(atm?.tipo_fuente ?? "")
+        .trim()
+        .toUpperCase();
+      if (tipoFuente === "CONSULTA") {
+        void loadOrdenesPorCaso(atm);
+      } else if (tipoFuente === "ESCANEO") {
+        const codigo = lastScanRef.current || fixed.material.trim();
+        if (codigo) {
+          void loadOrdenesPorCaso(atm, codigo);
+        } else {
+          setErrorFuente(null);
+        }
+      }
+    },
+    [loadOrdenesPlanificadas, loadOrdenesPorCaso, fixed.material],
   );
 
   // ===== Cargar ATM y (si aplica) órdenes del SP de consulta =====
@@ -1072,9 +1180,26 @@ export default function Step5CapturarMuestreo({
     setFixed((prev) => ({ ...prev, tiempo: 0 }));
   }, []);
 
+  const handlePausar = useCallback(() => {
+    const elapsed = segundosTranscurridos;
+    inicioRef.current = null;
+    setInicioMs(null);
+    setCronometro("paused");
+    setSegundosTranscurridos(elapsed);
+    setFixed((prev) => ({ ...prev, tiempo: elapsed }));
+  }, [segundosTranscurridos]);
+
+  const handleRetomar = useCallback(() => {
+    const now = Date.now() - segundosTranscurridos * 1000;
+    inicioRef.current = now;
+    setInicioMs(now);
+    setCronometro("running");
+  }, [segundosTranscurridos]);
+
   const handleParar = useCallback(() => {
     const elapsed = segundosTranscurridos;
     inicioRef.current = null;
+    setInicioMs(null);
     setCronometro("stopped");
     setSegundosTranscurridos(elapsed);
     setFixed((prev) => ({ ...prev, tiempo: elapsed }));
@@ -1088,7 +1213,7 @@ export default function Step5CapturarMuestreo({
     Record<string, { codigoRegistro?: number; causasOk?: boolean }>
   >({});
 
-  const handleCancelar = useCallback(() => {
+  const handleReiniciarMuestreo = useCallback(() => {
     inicioRef.current = null;
     setCronometro("idle");
     setInicioMs(null);
@@ -1098,9 +1223,8 @@ export default function Step5CapturarMuestreo({
     progresoVariacionRef.current = {};
     setIntentoGuardar(false);
     toast({
-      title: "Muestreo cancelado",
+      title: "Muestreo reiniciado",
       description: "Se reinició el cronómetro y las muestras capturadas.",
-      variant: "destructive",
     });
   }, [toast, makeEmptyMuestra]);
 
@@ -1117,17 +1241,34 @@ export default function Step5CapturarMuestreo({
     [],
   );
 
+  // Primitivos: `filaConsolidada` llega como objeto inline desde el padre
+  // y cambia de referencia en cada render → no usarlo como dependencia.
+  const filaOrigen =
+    filaConsolidada?.codigo_origen ?? null;
+  const filaOrigenComponente =
+    filaConsolidada?.codigo_origen_componente ?? null;
+  const filaArea = filaConsolidada?.codigo_area ?? null;
+  const filaAtm = filaConsolidada?.codigo_area_tipo_motivo ?? null;
+  const filaComp = filaConsolidada?.codigo_componente ?? null;
+
   useEffect(() => {
     let cancelled = false;
-    const fila = filaConsolidada ?? samplingRutaStorage.get();
-    const area = codigoArea ?? fila?.codigo_area ?? null;
-    const atm = codigoAreaTipoMotivo ?? fila?.codigo_area_tipo_motivo ?? null;
-    const origen = fila?.codigo_origen ?? null;
-    const comp = codigoComponente ?? fila?.codigo_componente ?? null;
-    const origenComponente = fila?.codigo_origen_componente ?? null;
+    const area = codigoArea ?? filaArea ?? null;
+    const atm = codigoAreaTipoMotivo ?? filaAtm ?? null;
+    const origen = filaOrigen ?? samplingRutaStorage.get()?.codigo_origen ?? null;
+    const comp =
+      codigoComponente ??
+      filaComp ??
+      samplingRutaStorage.get()?.codigo_componente ??
+      null;
+    const origenComponente =
+      filaOrigenComponente ??
+      samplingRutaStorage.get()?.codigo_origen_componente ??
+      null;
 
     if (origen == null || comp == null) {
-      setCausasDisponibles([]);
+      // Evitar `setState([])` con array nuevo: React no bail-out y puede ciclar.
+      setCausasDisponibles((prev) => (prev.length === 0 ? prev : []));
       return;
     }
 
@@ -1172,7 +1313,11 @@ export default function Step5CapturarMuestreo({
     codigoArea,
     codigoAreaTipoMotivo,
     codigoComponente,
-    filaConsolidada,
+    filaOrigen,
+    filaOrigenComponente,
+    filaArea,
+    filaAtm,
+    filaComp,
   ]);
 
   /**
@@ -1181,7 +1326,8 @@ export default function Step5CapturarMuestreo({
    * error en celdas `number` vacías SOLO después del primer intento
    * (de lo contrario, los inputs vacíos se ven rojos desde el arranque,
    * lo cual confunde al usuario).
-   * Se resetea a `false` en `handleCancelar` para empezar de cero.
+   * Se resetea a `false` en `handleReiniciarMuestreo` para empezar de cero.
+   * (Pausar / retomar no limpian este flag.)
    */
   const [intentoGuardar, setIntentoGuardar] = useState(false);
 
@@ -1518,7 +1664,9 @@ export default function Step5CapturarMuestreo({
           `${registrosCreados.length} registro(s) · ${totalCant} unidad(es) · IDs: ${registrosCreados.join(", ")}.`,
         variant: "success",
       });
-      if (typeof window !== "undefined") {
+      if (onGuardadoExitoso) {
+        onGuardadoExitoso();
+      } else if (typeof window !== "undefined") {
         window.setTimeout(() => {
           window.location.reload();
         }, 400);
@@ -1549,12 +1697,14 @@ export default function Step5CapturarMuestreo({
     construirRegistroPayload,
     construirDetalles,
     toast,
+    onGuardadoExitoso,
   ]);
 
   // ===== Notificar al padre en cada cambio =====
   useEffect(() => {
+    if (!isActive) return;
     onChange?.({ fixed, muestras, ordenSeleccionada: selectedOrden, meta });
-  }, [fixed, muestras, selectedOrden, meta, onChange]);
+  }, [fixed, muestras, selectedOrden, meta, onChange, isActive]);
 
   const handleFixedChange = (
     field: keyof FixedFields,
@@ -1591,14 +1741,11 @@ const handleSelectOrden = useCallback(
   []
 );
 
-  // Ref de deduplicación para handleScannerDetected: solo llamamos al SP
-  // si el código escaneado cambió respecto al último procesado.
-  const lastScanRef = useRef<string>("");
-
   /**
    * Handler del ScannerPanel (modo ESCANEO).
    * Inyecta el valor en fixed.material, dispara el feedback visual
-   * y llama al SP de órdenes (solo si el código es nuevo).
+   * y llama al SP de órdenes fabricadas (solo si el código es nuevo).
+   * Si el toggle está en planificadas, el escaneo no cambia esa lista.
    */
   const handleScannerDetected = useCallback((value: string) => {
     const text = (value ?? "").trim();
@@ -1610,8 +1757,9 @@ const handleSelectOrden = useCallback(
     // Evita llamar loadOrdenesPorCaso si el mismo código ya fue procesado.
     if (text === lastScanRef.current) return;
     lastScanRef.current = text;
+    if (tipoListaOrdenes !== "fabricadas") return;
     void loadOrdenesPorCaso(atmFuenteRef.current, text);
-  }, []);
+  }, [loadOrdenesPorCaso, tipoListaOrdenes]);
 
   // ===== Drag & Drop (campos de la orden → inputs de parte fija) =====
 
@@ -1764,7 +1912,10 @@ const handleSelectOrden = useCallback(
     >
     <div className="space-y-6 pb-28">
       <div>
-        <span className="text-sm text-primary font-medium">{stepHint}</span>
+        <span className="text-sm text-primary font-medium">
+          {stepHint}
+          {sessionLabel ? ` · ${sessionLabel}` : ""}
+        </span>
         <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">
           Captura del muestreo
         </h2>
@@ -1860,6 +2011,20 @@ const handleSelectOrden = useCallback(
                 )}
               </div>
 
+              <Tabs
+                value={tipoListaOrdenes}
+                onValueChange={handleChangeTipoListaOrdenes}
+              >
+                <TabsList className="grid h-9 w-full max-w-md grid-cols-2">
+                  <TabsTrigger value="fabricadas" className="text-xs sm:text-sm">
+                    Órdenes Fabricadas
+                  </TabsTrigger>
+                  <TabsTrigger value="planificadas" className="text-xs sm:text-sm">
+                    Órdenes Planificadas
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+
               {isLoadingFuente ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground py-3">
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -1881,16 +2046,23 @@ const handleSelectOrden = useCallback(
                   buen indicador de "ya se intentó".
                 */
                 <div className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
-                  {String(atmFuente?.tipo_fuente).trim().toUpperCase() ===
-                    "ESCANEO" && !fixed.material ? (
+                  {tipoListaOrdenes === "fabricadas" &&
+                  String(atmFuente?.tipo_fuente).trim().toUpperCase() ===
+                    "ESCANEO" &&
+                  !fixed.material ? (
                     <>
                       Escanea un código QR o de barras en el panel de arriba
-                      para recuperar las órdenes disponibles.
+                      para recuperar las órdenes fabricadas.
+                    </>
+                  ) : tipoListaOrdenes === "planificadas" ? (
+                    <>
+                      No hay órdenes planificadas (estado PN) para los
+                      responsables del área en el rango de fechas.
                     </>
                   ) : (
                     <>
-                      El SP no devolvió órdenes para los responsables
-                      seleccionados.
+                      El SP no devolvió órdenes fabricadas para los
+                      responsables seleccionados.
                     </>
                   )}
                 </div>
@@ -2244,6 +2416,8 @@ const handleSelectOrden = useCallback(
                 "bg-muted/40 text-muted-foreground border border-dashed",
               cronometro === "running" &&
                 "bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/30 dark:text-green-300 dark:border-green-800",
+              cronometro === "paused" &&
+                "bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800",
               cronometro === "stopped" &&
                 "bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-800"
             )}
@@ -2255,6 +2429,8 @@ const handleSelectOrden = useCallback(
                   "La tabla dinámica está bloqueada. Pulsa INICIAR para empezar."}
                 {cronometro === "running" &&
                   "Muestreo en curso — registra los valores por muestra."}
+                {cronometro === "paused" &&
+                  "Muestreo en pausa — el tiempo está congelado. Puedes retomarlo."}
                 {cronometro === "stopped" &&
                   "Muestreo detenido — listo para guardar."}
               </span>
@@ -2270,6 +2446,11 @@ const handleSelectOrden = useCallback(
               {cronometro === "idle"
                 ? "Las columnas dinámicas se habilitarán al iniciar el cronómetro."
                 : "Las columnas se bloquearon al detener el cronómetro."}
+            </p>
+          )}
+          {cronometro === "paused" && (
+            <p className="text-[11px] text-muted-foreground">
+              El cronómetro está en pausa. Pulsa Continuar para retomar el tiempo.
             </p>
           )}
 
@@ -2524,51 +2705,79 @@ const handleSelectOrden = useCallback(
       </p> */}
 
       {/* ============ BOTONES FLOTANTES ============ */}
-      {/* fixed bottom-right, z-40, móvil-friendly */}
+      {/* Solo la sesión activa del multi-panel muestra controles fijos. */}
+      {isActive && (
       <TooltipProvider delayDuration={200} skipDelayDuration={0}>
         <div className="fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-4 z-40 flex flex-col gap-3 sm:right-6">
-          {/* INICIAR / PARAR — botón dual circular */}
-          {cronometro !== "stopped" && (
+          {/* INICIAR / CONTINUAR — verde */}
+          {(cronometro === "idle" || cronometro === "paused") && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={cronometro === "idle" ? handleIniciar : handleParar}
-                  className={cn(
-                    "group flex h-12 w-12 items-center justify-center rounded-full shadow-lg ring-1 ring-black/5 transition-all hover:scale-105 active:scale-95",
-                    cronometro === "idle"
-                      ? "bg-green-600 text-white hover:bg-green-700 shadow-green-600/30"
-                      : "bg-red-600 text-white hover:bg-red-700 shadow-red-600/30 animate-pulse"
-                  )}
-                  aria-label={cronometro === "idle" ? "Iniciar muestreo" : "Detener cronómetro"}
+                  onClick={cronometro === "idle" ? handleIniciar : handleRetomar}
+                  className="group flex h-12 w-12 items-center justify-center rounded-full bg-green-600 text-white shadow-lg shadow-green-600/30 ring-1 ring-black/5 transition-all hover:scale-105 active:scale-95 hover:bg-green-700"
+                  aria-label={
+                    cronometro === "idle" ? "Iniciar muestreo" : "Continuar muestreo"
+                  }
                 >
-                  {cronometro === "idle" ? (
-                    <Play className="h-5 w-5" />
-                  ) : (
-                    <StopCircle className="h-5 w-5" />
-                  )}
+                  <Play className="h-5 w-5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="left">
-                {cronometro === "idle" ? "Iniciar muestreo" : "Detener cronómetro"}
+                {cronometro === "idle" ? "Iniciar muestreo" : "Continuar muestreo"}
               </TooltipContent>
             </Tooltip>
           )}
 
-          {/* CANCELAR — naranja, circular */}
-          {(cronometro === "running" || cronometro === "stopped") && (
+          {/* PAUSAR — ámbar, congela el tiempo para retomarlo después */}
+          {cronometro === "running" && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={handleCancelar}
-                  className="flex h-12 w-12 items-center justify-center rounded-full bg-orange-500 text-white shadow-lg shadow-orange-500/30 ring-1 ring-black/5 transition-all hover:bg-orange-600 hover:scale-105 active:scale-95"
-                  aria-label="Cancelar y reiniciar"
+                  onClick={handlePausar}
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/30 ring-1 ring-black/5 transition-all hover:bg-amber-600 hover:scale-105 active:scale-95"
+                  aria-label="Pausar muestreo"
                 >
-                  <XCircle className="h-5 w-5" />
+                  <Pause className="h-5 w-5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="left">Cancelar y reiniciar</TooltipContent>
+              <TooltipContent side="left">Pausar muestreo</TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* DETENER — rojo, cierra el tiempo para poder guardar */}
+          {(cronometro === "running" || cronometro === "paused") && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleParar}
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30 ring-1 ring-black/5 transition-all hover:bg-red-700 hover:scale-105 active:scale-95 animate-pulse"
+                  aria-label="Detener cronómetro"
+                >
+                  <StopCircle className="h-5 w-5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">Detener cronómetro</TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* REINICIAR — vuelve a cero (solo si ya hubo actividad) */}
+          {(cronometro === "paused" || cronometro === "stopped") && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleReiniciarMuestreo}
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-orange-500 text-white shadow-lg shadow-orange-500/30 ring-1 ring-black/5 transition-all hover:bg-orange-600 hover:scale-105 active:scale-95"
+                  aria-label="Reiniciar muestreo"
+                >
+                  <RotateCcw className="h-5 w-5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">Reiniciar muestreo</TooltipContent>
             </Tooltip>
           )}
 
@@ -2626,6 +2835,7 @@ const handleSelectOrden = useCallback(
           </Tooltip>
         </div>
       </TooltipProvider>
+      )}
     </div>
     </DndContext>
   );

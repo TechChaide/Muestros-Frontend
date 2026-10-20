@@ -6,8 +6,11 @@ networks:
 
 services:
   frontend:
-    build: .
-    image: techchaide/procesos-mddp-frontend:1.0
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_BASE_PATH: /Procesos-MDDP
+    image: techchaide/procesos-mddp-frontend:1.2
     container_name: procesos-mddp_frontend_prod
     restart: unless-stopped
     environment:

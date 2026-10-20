@@ -106,6 +106,26 @@ export const serviciosMuestreosService = {
     return response.json();
   },
 
+  async getOrdenesPendientesPorResponsables(
+    responsables: string,
+  ): Promise<BodyListResponse<OrdenesTrabajadas>> {
+    const response = await fetchWithAuth(`${API_URL}/getOrdenesPendientes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ Responsables: responsables }),
+    });
+    if (!response.ok) {
+      const errorBody = await response
+        .json()
+        .catch(() => ({ message: "Error desconocido" }));
+      throw new Error(
+        errorBody.message ||
+          `Failed to fetch ordenes planificadas with responsables ${responsables}`,
+      );
+    }
+    return response.json();
+  },
+
   async getMaquinasMantenimiento(): Promise<
     BodyListResponse<MaquinasMantenimiento>
   > {

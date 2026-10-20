@@ -15,9 +15,8 @@ import Step2SelectMotivoMuestreo from "../samplings/components/step2-select-moti
 import Step3SelectComponenteMuestreo from "../samplings/components/step3-select-componente-muestreo";
 import Step4SelectCausaMuestreo from "../samplings/components/step4-select-causa-muestreo";
 import StepSelectOrigen from "@/components/step-select-origen";
-import Step5CapturarMuestreo, {
-  type CapturaData,
-} from "../samplings/components/step5-capturar-muestreo";
+import Step5MultiSesion from "../samplings/components/step5-multi-sesion";
+import { type CapturaData } from "../samplings/components/step5-capturar-muestreo";
 import PathHeader from "../samplings/components/path-header";
 import {
   samplingOpRutaParcialStorage,
@@ -630,7 +629,7 @@ export default function SamplingsOpPage() {
           )}
 
           {currentStep === 6 && (
-            <Step5CapturarMuestreo
+            <Step5MultiSesion
               codigoAreaTipoMotivo={selectedAreaTipoMotivo?.id ?? null}
               codigoComponente={selectedComponente?.id ?? null}
               codigoTipoMedicion={

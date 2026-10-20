@@ -31,7 +31,7 @@ export default function CatalogoMuestraCalidadPage() {
   return (
     <CatalogoTablaPage
       titulo="Catálogo de muestra de calidad"
-      descripcion="Consulta los materiales, descarga el Excel, carga el archivo modificado y revisa los cambios antes de guardarlos. La columna fila_origen identifica cada registro. Si la dejas vacía, el material se agrega. Quitar filas del Excel no las borra de la base."
+      descripcion="Consulta los materiales, descarga el Excel, carga el archivo modificado y revisa los cambios antes de guardarlos. Cada fila se compara por el código de material. Si el material no existe, se agrega. Si lo quitas del Excel, se elimina."
       placeholderBusqueda="Buscar por código, descripción, grupo, tipo o centro"
       nombreTabla="NotificaSAP.dbo.MuestreoCatalogoMaterial"
       nombreArchivo="catalogo_muestra_calidad.xlsx"

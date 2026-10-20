@@ -32,13 +32,13 @@ export type CampoCambio = {
 };
 
 export type CambioAplicar = {
-  tipo: "update" | "insert";
+  tipo: "update" | "insert" | "delete";
   original?: Record<string, string | number | null>;
   valores: Record<string, string | number | null>;
 };
 
 export type CambioCatalogo = {
-  tipo: "update" | "insert";
+  tipo: "update" | "insert" | "delete";
   fila_origen: number | null;
   filaExcel: number;
   original: FilaCatalogo | null;
@@ -125,16 +125,15 @@ export function descargarCatalogo(
   filas: FilaCatalogo[],
   nombreArchivo: string,
 ) {
-  const encabezados = ["fila_origen", ...columnas.map((columna) => columna.key)];
+  const encabezados = columnas.map((columna) => columna.key);
   const aoa: Array<Array<string | number | null>> = [encabezados];
   for (const fila of filas) {
-    aoa.push([
-      fila.fila_origen,
-      ...columnas.map((columna) => {
+    aoa.push(
+      columnas.map((columna) => {
         const valor = fila[columna.key];
         return valor === "" ? null : (valor ?? null);
       }),
-    ]);
+    );
   }
   const hoja = XLSX.utils.aoa_to_sheet(aoa);
   hoja["!cols"] = encabezados.map((encabezado) => ({
@@ -153,12 +152,10 @@ export function leerCatalogoExcel(
 ): {
   filas: FilaCargada[];
   errores: ErrorArchivo[];
+  materialesPresentes?: string[];
   errorEncabezado?: string;
 } {
-  const aliases: Record<string, string> = {
-    "fila origen": "fila_origen",
-    fila: "fila_origen",
-  };
+  const aliases: Record<string, string> = {};
   for (const columna of columnas) {
     aliases[normalizarEncabezado(columna.key)] = columna.key;
     aliases[normalizarEncabezado(columna.label)] = columna.key;
@@ -179,7 +176,7 @@ export function leerCatalogoExcel(
   let headerIndex = -1;
   for (let i = 0; i < Math.min(10, matriz.length); i += 1) {
     const celdas = (matriz[i] ?? []).map((celda) => normalizarEncabezado(celda));
-    if (celdas.includes("fila origen") || celdas.includes(requeridoNormalizado)) {
+    if (celdas.includes(requeridoNormalizado)) {
       headerIndex = i;
       break;
     }
@@ -198,36 +195,22 @@ export function leerCatalogoExcel(
     const alias = aliases[normalizarEncabezado(celda)];
     if (alias && !mapa.has(alias)) mapa.set(alias, index);
   });
-  if (!mapa.has("fila_origen") || !mapa.has(campoRequerido)) {
+  if (!mapa.has(campoRequerido)) {
     return {
       filas: [],
       errores: [],
-      errorEncabezado: `El Excel debe incluir las columnas fila_origen y ${campoRequerido}. Descárgalo de nuevo desde esta pantalla.`,
+      errorEncabezado: `El Excel debe incluir la columna ${campoRequerido}. Descárgalo de nuevo desde esta pantalla.`,
     };
   }
 
   const columnasPresentes = columnas.filter((columna) => mapa.has(columna.key));
   const filas: FilaCargada[] = [];
   const errores: ErrorArchivo[] = [];
-  const filasVistas = new Set<number>();
+  const materialesVistos = new Set<string>();
 
   for (let i = headerIndex + 1; i < matriz.length; i += 1) {
     const linea = matriz[i] ?? [];
     const filaExcel = i + 1;
-    const crudaFila = linea[mapa.get("fila_origen") as number];
-    let filaOrigen: number | null = null;
-    if (!(crudaFila == null || String(crudaFila).trim() === "")) {
-      const numero = typeof crudaFila === "number" ? crudaFila : Number(String(crudaFila).trim());
-      if (!Number.isInteger(numero) || numero < 1) {
-        errores.push({
-          filaExcel,
-          mensaje: "fila_origen debe ser el número que vino en la descarga, o quedar vacío si es un registro nuevo.",
-        });
-        continue;
-      }
-      filaOrigen = numero;
-    }
-
     const valores: Record<string, string | number | null> = {};
     let filaInvalida = false;
     for (const columna of columnas) {
@@ -259,43 +242,57 @@ export function leerCatalogoExcel(
     }
     if (filaInvalida || filaVacia(columnas, valores)) continue;
 
-    if (!valores[campoRequerido]) {
+    const material = comoTexto(valores[campoRequerido]);
+    if (!material) {
       errores.push({ filaExcel, mensaje: mensajeRequerido });
       continue;
     }
-    if (filaOrigen != null) {
-      if (filasVistas.has(filaOrigen)) {
-        errores.push({
-          filaExcel,
-          mensaje: `La fila de origen ${filaOrigen} está repetida en el archivo.`,
-        });
-        continue;
-      }
-      filasVistas.add(filaOrigen);
+    if (materialesVistos.has(material)) {
+      errores.push({
+        filaExcel,
+        mensaje: `El material ${material} está repetido en el archivo.`,
+      });
+      continue;
     }
-
+    materialesVistos.add(material);
     filas.push({
       filaExcel,
-      fila_origen: filaOrigen,
+      fila_origen: null,
       valores,
       columnas: columnasPresentes.map((columna) => columna.key),
     });
   }
 
-  return { filas, errores };
+  return { filas, errores, materialesPresentes: [...materialesVistos] };
+}
+
+function claveMaterial(valor: unknown): string {
+  return comoTexto(valor);
 }
 
 export function detectarCambios(
   columnas: ColumnaCatalogo[],
   originales: FilaCatalogo[],
   cargadas: FilaCargada[],
+  campoRequerido: string,
+  materialesPresentes: string[] = [],
 ): { cambios: CambioCatalogo[]; errores: ErrorArchivo[] } {
-  const porFila = new Map(originales.map((fila) => [fila.fila_origen, fila]));
+  const porMaterial = new Map<string, FilaCatalogo>();
+  for (const fila of originales) {
+    const clave = claveMaterial(fila[campoRequerido]);
+    if (!clave || porMaterial.has(clave)) continue;
+    porMaterial.set(clave, fila);
+  }
+
   const cambios: CambioCatalogo[] = [];
   const errores: ErrorArchivo[] = [];
+  const conservados = new Set(materialesPresentes.map((material) => claveMaterial(material)));
 
   for (const cargada of cargadas) {
-    if (cargada.fila_origen == null) {
+    const clave = claveMaterial(cargada.valores[campoRequerido]);
+    if (clave) conservados.add(clave);
+    const original = clave ? porMaterial.get(clave) : undefined;
+    if (!original) {
       const campos: CampoCambio[] = columnas
         .filter((columna) => {
           const valor = cargada.valores[columna.key];
@@ -318,15 +315,6 @@ export function detectarCambios(
       continue;
     }
 
-    const original = porFila.get(cargada.fila_origen);
-    if (!original) {
-      errores.push({
-        filaExcel: cargada.filaExcel,
-        mensaje: `fila_origen ${cargada.fila_origen} no existe en el catálogo consultado. Vuelve a descargar el Excel.`,
-      });
-      continue;
-    }
-
     const presentes = new Set(cargada.columnas);
     const campos: CampoCambio[] = [];
     const valores: Record<string, string | number | null> = {};
@@ -341,14 +329,14 @@ export function detectarCambios(
       const distinto =
         columna.tipo === "number"
           ? !mismaCantidad(antes as number | null, despues as number | null)
-          : antes !== despues;
+          : String(antes ?? "") !== String(despues ?? "");
       if (!distinto) continue;
       valores[columna.key] = despues;
       campos.push({
         campo: columna.key,
         label: columna.label,
-        antes,
-        despues,
+        antes: antes === "" ? null : antes,
+        despues: despues === "" ? null : despues,
       });
     }
 
@@ -357,6 +345,30 @@ export function detectarCambios(
       tipo: "update",
       fila_origen: original.fila_origen,
       filaExcel: cargada.filaExcel,
+      original,
+      valores,
+      campos,
+    });
+  }
+
+  for (const original of originales) {
+    const clave = claveMaterial(original[campoRequerido]);
+    if (!clave || conservados.has(clave)) continue;
+    const valores: Record<string, string | number | null> = {};
+    const campos: CampoCambio[] = columnas.map((columna) => {
+      const antes = original[columna.key] ?? null;
+      valores[columna.key] = antes === "" ? null : antes;
+      return {
+        campo: columna.key,
+        label: columna.label,
+        antes: antes === "" ? null : antes,
+        despues: null,
+      };
+    });
+    cambios.push({
+      tipo: "delete",
+      fila_origen: original.fila_origen,
+      filaExcel: 0,
       original,
       valores,
       campos,

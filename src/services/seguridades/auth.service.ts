@@ -41,6 +41,11 @@ export const authService = {
       body: JSON.stringify({
         email: credentials.email,
         password: credentials.password,
+        // Condicional: si hay app, seguridades usa configuracion.TOKEN_TIME_LIFE
+        nombre_aplicacion:
+          credentials.nombre_aplicacion ??
+          environment.nombreAplicacion ??
+          undefined,
       }),
       skipAuth: false,
     });
@@ -65,5 +70,35 @@ export const authService = {
     }
 
     return response.json();
+  },
+
+  /**
+   * Renueva el JWT/cookie httpOnly mientras la sesión siga válida.
+   * No usa fetchWithAuth para no disparar toast/redirect si falla el refresh.
+   */
+  async refreshSession(): Promise<boolean> {
+    try {
+      const response = await fetch(`${environment.apiURL}/api/auths/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  },
+
+  /** Borra la cookie httpOnly en el servidor de seguridades. */
+  async logout(): Promise<void> {
+    try {
+      await fetch(`${environment.apiURL}/api/auths/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch {
+      // Si falla la red, igual limpiamos estado local en el caller
+    }
   },
 };

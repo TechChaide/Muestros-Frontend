@@ -11,7 +11,8 @@ import Step1SelectAreaMuestreo from "./components/step1-select-area-muestreo";
 import Step2SelectMotivoMuestreo from "./components/step2-select-motivo-muestreo";
 import Step3SelectComponenteMuestreo from "./components/step3-select-componente-muestreo";
 import StepSelectOrigen from "@/components/step-select-origen";
-import Step5CapturarMuestreo, {
+import Step5MultiSesion from "./components/step5-multi-sesion";
+import {
   type CapturaData,
 } from "./components/step5-capturar-muestreo";
 import PathHeader from "./components/path-header";
@@ -412,7 +413,7 @@ export default function SamplingsPage() {
           )}
 
           {currentStep === 6 && (
-            <Step5CapturarMuestreo
+            <Step5MultiSesion
               codigoAreaTipoMotivo={selectedAreaTipoMotivo?.id ?? null}
               codigoComponente={selectedComponente?.id ?? null}
               codigoTipoMedicion={
