@@ -120,6 +120,34 @@ function filaVacia(
   });
 }
 
+/**
+ * Clave con la que se compara una fila contra el catálogo consultado.
+ * El primer campo es el requerido: si está vacío, la fila no tiene clave.
+ */
+export function claveFila(
+  valores: Record<string, string | number | null>,
+  camposClave: string[],
+): string {
+  const partes = camposClave.map((campo) => comoTexto(valores[campo]));
+  if (!partes[0]) return "";
+  return JSON.stringify(partes);
+}
+
+export function describirClave(
+  columnas: ColumnaCatalogo[],
+  camposClave: string[],
+  valores: Record<string, string | number | null>,
+): string {
+  const [principal, ...resto] = camposClave;
+  const detalle = resto
+    .map((campo) => {
+      const label = columnas.find((columna) => columna.key === campo)?.label ?? campo;
+      return ` con ${label.toLowerCase()} ${comoTexto(valores[campo]) || "vacío"}`;
+    })
+    .join("");
+  return `material ${comoTexto(valores[principal])}${detalle}`;
+}
+
 export function descargarCatalogo(
   columnas: ColumnaCatalogo[],
   filas: FilaCatalogo[],
@@ -149,10 +177,11 @@ export function leerCatalogoExcel(
   columnas: ColumnaCatalogo[],
   campoRequerido: string,
   mensajeRequerido: string,
+  camposClave: string[] = [campoRequerido],
 ): {
   filas: FilaCargada[];
   errores: ErrorArchivo[];
-  materialesPresentes?: string[];
+  clavesPresentes?: string[];
   errorEncabezado?: string;
 } {
   const aliases: Record<string, string> = {};
@@ -206,7 +235,7 @@ export function leerCatalogoExcel(
   const columnasPresentes = columnas.filter((columna) => mapa.has(columna.key));
   const filas: FilaCargada[] = [];
   const errores: ErrorArchivo[] = [];
-  const materialesVistos = new Set<string>();
+  const clavesVistas = new Set<string>();
 
   for (let i = headerIndex + 1; i < matriz.length; i += 1) {
     const linea = matriz[i] ?? [];
@@ -247,14 +276,15 @@ export function leerCatalogoExcel(
       errores.push({ filaExcel, mensaje: mensajeRequerido });
       continue;
     }
-    if (materialesVistos.has(material)) {
+    const clave = claveFila(valores, camposClave);
+    if (clavesVistas.has(clave)) {
       errores.push({
         filaExcel,
-        mensaje: `El material ${material} está repetido en el archivo.`,
+        mensaje: `El ${describirClave(columnas, camposClave, valores)} está repetido en el archivo.`,
       });
       continue;
     }
-    materialesVistos.add(material);
+    clavesVistas.add(clave);
     filas.push({
       filaExcel,
       fila_origen: null,
@@ -263,35 +293,31 @@ export function leerCatalogoExcel(
     });
   }
 
-  return { filas, errores, materialesPresentes: [...materialesVistos] };
-}
-
-function claveMaterial(valor: unknown): string {
-  return comoTexto(valor);
+  return { filas, errores, clavesPresentes: [...clavesVistas] };
 }
 
 export function detectarCambios(
   columnas: ColumnaCatalogo[],
   originales: FilaCatalogo[],
   cargadas: FilaCargada[],
-  campoRequerido: string,
-  materialesPresentes: string[] = [],
+  camposClave: string[],
+  clavesPresentes: string[] = [],
 ): { cambios: CambioCatalogo[]; errores: ErrorArchivo[] } {
-  const porMaterial = new Map<string, FilaCatalogo>();
+  const porClave = new Map<string, FilaCatalogo>();
   for (const fila of originales) {
-    const clave = claveMaterial(fila[campoRequerido]);
-    if (!clave || porMaterial.has(clave)) continue;
-    porMaterial.set(clave, fila);
+    const clave = claveFila(fila, camposClave);
+    if (!clave || porClave.has(clave)) continue;
+    porClave.set(clave, fila);
   }
 
   const cambios: CambioCatalogo[] = [];
   const errores: ErrorArchivo[] = [];
-  const conservados = new Set(materialesPresentes.map((material) => claveMaterial(material)));
+  const conservados = new Set(clavesPresentes);
 
   for (const cargada of cargadas) {
-    const clave = claveMaterial(cargada.valores[campoRequerido]);
+    const clave = claveFila(cargada.valores, camposClave);
     if (clave) conservados.add(clave);
-    const original = clave ? porMaterial.get(clave) : undefined;
+    const original = clave ? porClave.get(clave) : undefined;
     if (!original) {
       const campos: CampoCambio[] = columnas
         .filter((columna) => {
@@ -352,7 +378,7 @@ export function detectarCambios(
   }
 
   for (const original of originales) {
-    const clave = claveMaterial(original[campoRequerido]);
+    const clave = claveFila(original, camposClave);
     if (!clave || conservados.has(clave)) continue;
     const valores: Record<string, string | number | null> = {};
     const campos: CampoCambio[] = columnas.map((columna) => {

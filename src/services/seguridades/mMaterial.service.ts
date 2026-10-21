@@ -1,6 +1,7 @@
 import { environment } from "@/environments/environments.prod";
 import { fetchWithAuth } from "@/lib/http-client";
 import type { CambioAplicar, FilaCatalogo } from "@/app/dashboard/calidad/shared/catalogo-tabla";
+import { leerError, listarPorBloques } from "./catalogoTablaHttp";
 
 const API_URL = `${environment.appAPI}/api/m_material`;
 
@@ -10,24 +11,9 @@ export type ResultadoAplicar = {
   eliminados: number;
 };
 
-async function leerError(response: Response, fallback: string): Promise<string> {
-  const body = await response.json().catch(() => null);
-  if (body && typeof body === "object") {
-    if ("error" in body && typeof body.error === "string") return body.error;
-    if ("message" in body && typeof body.message === "string") return body.message;
-  }
-  return fallback;
-}
-
 export const mMaterialService = {
-  async listar(): Promise<FilaCatalogo[]> {
-    const response = await fetchWithAuth(API_URL);
-    if (!response.ok) {
-      throw new Error(await leerError(response, "No se pudo consultar M_MATERIAL."));
-    }
-    const body = await response.json();
-    const data = Array.isArray(body?.data) ? body.data : [];
-    return data as FilaCatalogo[];
+  listar(): Promise<FilaCatalogo[]> {
+    return listarPorBloques(API_URL, "No se pudo consultar M_MATERIAL.");
   },
 
   async aplicar(cambios: CambioAplicar[]): Promise<ResultadoAplicar> {

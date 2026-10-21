@@ -33,7 +33,9 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   cambioDesdeValores,
+  claveFila,
   descargarCatalogo,
+  describirClave,
   detectarCambios,
   formatValor,
   interpretarEdicion,
@@ -57,6 +59,8 @@ type CatalogoTablaPageProps = {
   etiquetaConteo: string;
   columnas: ColumnaCatalogo[];
   campoRequerido: string;
+  /** Campos que identifican cada registro; el primero debe ser campoRequerido. */
+  camposClave?: string[];
   mensajeRequerido: string;
   camposBusqueda: string[];
   tituloFila: (valores: Record<string, string | number | null>) => string;
@@ -74,6 +78,7 @@ export function CatalogoTablaPage({
   etiquetaConteo,
   columnas,
   campoRequerido,
+  camposClave = [campoRequerido],
   mensajeRequerido,
   camposBusqueda,
   tituloFila,
@@ -173,7 +178,13 @@ export function CatalogoTablaPage({
     if (!file) return;
     try {
       const buffer = await file.arrayBuffer();
-      const leido = leerCatalogoExcel(buffer, columnas, campoRequerido, mensajeRequerido);
+      const leido = leerCatalogoExcel(
+        buffer,
+        columnas,
+        campoRequerido,
+        mensajeRequerido,
+        camposClave,
+      );
       if (leido.errorEncabezado) {
         toast({ title: "Excel", description: leido.errorEncabezado, variant: "destructive" });
         return;
@@ -182,8 +193,8 @@ export function CatalogoTablaPage({
         columnas,
         registros,
         leido.filas,
-        campoRequerido,
-        leido.materialesPresentes ?? [],
+        camposClave,
+        leido.clavesPresentes ?? [],
       );
       const erroresArchivo = [...leido.errores, ...diff.errores];
       setErrores(erroresArchivo);
@@ -226,6 +237,17 @@ export function CatalogoTablaPage({
     const interpretado = interpretarEdicion(columnas, campoRequerido, mensajeRequerido, borrador);
     if (interpretado.error || !interpretado.valores) {
       setErrorEdicion(interpretado.error || "No se pudo leer la edición.");
+      return;
+    }
+    const clave = claveFila(interpretado.valores, camposClave);
+    const repetido =
+      clave !== claveFila(filaEdicion, camposClave) &&
+      registros.some(
+        (fila) =>
+          fila.fila_origen !== filaEdicion.fila_origen && claveFila(fila, camposClave) === clave,
+      );
+    if (repetido) {
+      setErrorEdicion(`Ya existe el ${describirClave(columnas, camposClave, interpretado.valores)}.`);
       return;
     }
     const cambio = cambioDesdeValores(columnas, filaEdicion, interpretado.valores);

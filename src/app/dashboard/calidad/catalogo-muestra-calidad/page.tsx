@@ -31,13 +31,14 @@ export default function CatalogoMuestraCalidadPage() {
   return (
     <CatalogoTablaPage
       titulo="Catálogo de muestra de calidad"
-      descripcion="Consulta los materiales, descarga el Excel, carga el archivo modificado y revisa los cambios antes de guardarlos. Cada fila se compara por el código de material. Si el material no existe, se agrega. Si lo quitas del Excel, se elimina."
+      descripcion="Consulta los materiales, descarga el Excel, carga el archivo modificado y revisa los cambios antes de guardarlos. Cada fila se compara por el código de material y el centro, así que un mismo material puede estar en varios centros. Si la combinación no existe, se agrega. Si la quitas del Excel, se elimina."
       placeholderBusqueda="Buscar por código, descripción, grupo, tipo o centro"
       nombreTabla="NotificaSAP.dbo.MuestreoCatalogoMaterial"
       nombreArchivo="catalogo_muestra_calidad.xlsx"
       etiquetaConteo="materiales"
       columnas={COLUMNAS}
       campoRequerido="cod_material"
+      camposClave={["cod_material", "Centro"]}
       mensajeRequerido="Falta el código de material."
       camposBusqueda={["cod_material", "descripcion", "grupo", "Tipo", "Centro"]}
       tituloFila={(valores) =>
